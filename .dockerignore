@@ -1,0 +1,17 @@
+node_modules
+data
+dist
+backups
+samples
+test
+.git
+.env*
+*.md
+Makefile
+start.bat
+deploy
+docker-compose*.yml
+scripts/*.sh
+scripts/*.py
+scripts/*.ps1
+scripts/*.mjs

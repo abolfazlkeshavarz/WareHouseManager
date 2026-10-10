@@ -1,0 +1,10 @@
+node_modules/
+data/
+*.pfx
+*.log
+.env.prod
+backups/
+dist/
+
+# real stock reports exported from the accounting system (company data)
+samples/انبار-*

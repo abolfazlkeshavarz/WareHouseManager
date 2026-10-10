@@ -1,0 +1,46 @@
+# Rendered by scripts/deploy-host-nginx.sh with envsubst
+# (only ${DOMAIN} and ${APP_HTTP_PORT} are substituted).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    # http2 sits on the listen lines (the standalone "http2 on;" needs nginx >= 1.25.1 and
+    # fails with "unknown directive" on the older nginx shipped by Ubuntu/Debian).
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL_warehouse:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # Part photos and Excel imports are small, but leave some room.
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass http://127.0.0.1:${APP_HTTP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}

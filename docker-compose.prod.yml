@@ -1,0 +1,44 @@
+# Production stack: one container, port published on loopback only; the HOST's
+# nginx terminates TLS and proxies to it (scripts/deploy-host-nginx.sh).
+#
+# Always run through the Makefile (make prod-up ...) so .env.prod is the only
+# source of these variables.
+name: warehouse
+
+services:
+  app:
+    image: warehouse-app:${VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-latest}
+    container_name: warehouse-app
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      DATA_DIR: /data
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      TZ: ${TZ:-Asia/Tehran}
+    ports:
+      # 127.0.0.1 by default: only the host nginx can reach it. Set HTTP_BIND=0.0.0.0
+      # only for a trusted-LAN setup without TLS (the phone camera will not work over plain http).
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8090}:3000"
+    volumes:
+      - warehouse-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  warehouse-data:
+    name: warehouse-data

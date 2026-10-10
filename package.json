@@ -1,0 +1,25 @@
+{
+  "name": "warehouse-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "سامانه انبار قطعات با QR کد — PWA فارسی",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --no-warnings server/index.js",
+    "dev": "node --no-warnings --watch server/index.js",
+    "test": "node --no-warnings --test \"test/*.test.js\"",
+    "backup": "node --no-warnings scripts/backup.js",
+    "icons": "node scripts/make-icons.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.22.3",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "vazirmatn": "^33.0.3",
+    "xlsx": "^0.18.5"
+  }
+}
