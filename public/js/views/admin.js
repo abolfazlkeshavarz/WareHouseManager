@@ -131,6 +131,8 @@ export async function settingsView() {
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
   const mainWh = h('select', { class: 'input' },
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
+  const dateFmt = h('select', { class: 'input' }, ...[['slash', '1405/07/18 (پیش‌فرض)'], ['digits', '14050718'], ['dash', '1405-07-18'], ['with_time', '1405/07/18 12:00:00 ق.ظ']]
+    .map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_date_format || 'slash') }, l)));
   const titles = h('input', { type: 'checkbox', checked: !!s.sepidar_titles, style: { width: '22px', height: '22px' } });
   const issuer = h('input', { class: 'input code', inputmode: 'numeric', value: s.sepidar_issuer_id ?? '', maxlength: 9, placeholder: 'خالی' });
   const accounts = {};
@@ -177,6 +179,7 @@ export async function settingsView() {
       h('div', { class: 'form-grid two' },
         ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
         h('label', { class: 'row', style: { gap: '12px' } }, titles, h('span', null, 'پر کردن ستون‌های «عنوان» (انبار، قلم، حساب…) — معمولاً باید خاموش باشد')),
+        field('قالب تاریخ در فایل', dateFmt, 'اگر سپیدار روی ستون تاریخ خطا داد، قالب دیگر را امتحان کنید'),
         field('شناسه‌ی عددی «صادر کننده (2)»', issuer, 'اگر خالی بماند سپیدار کاربر وارد شده را می‌گذارد؛ مقدار متنی (نام) باعث خطای «داده‌ی وارد شده صحیح نمی‌باشد» می‌شود'),
         ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].kind} › ${groups[k].type}`, el)))),
     h('div', { class: 'card stack', id: 'sepidar-cols' },
@@ -196,6 +199,7 @@ export async function settingsView() {
           sepidar_party_codes: Object.fromEntries(Object.entries(party).map(([k, el]) => [k, el.value])),
           sepidar_issuer_id: issuer.value,
           sepidar_titles: titles.checked,
+          sepidar_date_format: dateFmt.value,
           sepidar_accounts: Object.fromEntries(Object.entries(accounts).map(([k, el]) => [k, el.value])),
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);

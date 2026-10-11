@@ -9,9 +9,11 @@ import { fileURLToPath } from 'node:url';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-samples-'));
 
 const { sepidarGroupInfo, sepidarTable, renderSepidar } = await import('../server/services/exports.js');
+const { setSetting } = await import('../server/db.js');
 
 const out = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'samples', 'sepidar');
 fs.mkdirSync(out, { recursive: true });
+fs.rmSync(path.join(out, 'date-tests'), { recursive: true, force: true });
 for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
 
 const ROWS = [
@@ -37,4 +39,16 @@ for (const [name, group, no, party] of files) {
   fs.writeFileSync(path.join(out, name), await renderSepidar(table, 'xls'));
   console.log(name, '→ number', no, ',', ROWS.length, 'items,', table[0].length, 'columns');
 }
+
+// The same خروج file with each date format, to find the one Sepidar's importer accepts.
+const variants = [['A-slash-1405-07-18', 'slash'], ['B-digits-14050718', 'digits'], ['C-dash-1405-07-18', 'dash'], ['D-with-time', 'with_time']];
+fs.mkdirSync(path.join(out, 'date-tests'), { recursive: true });
+for (const [name, mode] of variants) {
+  setSetting('sepidar_date_format', mode);
+  const info = sepidarGroupInfo('consumption');
+  const table = sepidarTable(info, ROWS, { docNo: 950, date: DATE });
+  fs.writeFileSync(path.join(out, 'date-tests', `خروج-مصرف-${name}.xls`), await renderSepidar(table, 'xls'));
+  console.log('date-tests', name, '→', JSON.stringify(table[1].slice(0, 3)));
+}
+setSetting('sepidar_date_format', 'slash');
 try { fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true }); } catch { /* the DB file is still open on Windows; the OS temp cleaner removes it */ }

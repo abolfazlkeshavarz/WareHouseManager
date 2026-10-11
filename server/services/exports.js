@@ -220,6 +220,16 @@ function columnsFor(doc) {
   return cols.length ? cols : defaults;
 }
 
+/** "1405/07/18" in the format Sepidar's importer accepts (switchable in settings while we find which one it wants). */
+export function formatSepidarDate(date, mode = 'slash') {
+  switch (mode) {
+    case 'digits': return date.replace(/\//g, '');          // 14050718
+    case 'dash': return date.replace(/\//g, '-');            // 1405-07-18
+    case 'with_time': return `${date} 12:00:00 ق.ظ`;          // what Sepidar's own export prints
+    default: return date;                                    // 1405/07/18
+  }
+}
+
 /** Sepidar stores Arabic letters; the app types Persian ones. Convert text values so they match its data. */
 const arabic = (t) => String(t ?? '').replace(/ی/g, 'ي').replace(/ک/g, 'ك');
 
@@ -252,7 +262,7 @@ export function sepidarTable(info, rows, { docNo, date }) {
     number: String(docNo),
     // Sepidar's EXPORT prints "1405/07/18 12:00:00 ق.ظ", but its importer splits the date on "/" and parses every
     // part as an integer, so the time suffix makes it fail ("Input string was not in a correct format").
-    date,
+    date: formatSepidarDate(date, s.sepidar_date_format),
     warehouse: info.warehouse,
     warehouse_title: titles ? arabic(wh?.title ?? '') : '',
     account: info.doc === 'receipt' ? (acct ?? g.account ?? '') : '',

@@ -334,6 +334,11 @@ api.put('/settings', requireAdmin, (req, res) => {
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
+  if (b.sepidar_date_format !== undefined) {
+    const v = String(b.sepidar_date_format);
+    if (!['slash', 'digits', 'dash', 'with_time'].includes(v)) throw new HttpError(400, 'قالب تاریخ نامعتبر است.');
+    setSetting('sepidar_date_format', v); changes.sepidar_date_format = v;
+  }
   if (b.sepidar_titles !== undefined) { setSetting('sepidar_titles', !!b.sepidar_titles); changes.sepidar_titles = !!b.sepidar_titles; }
   if (b.sepidar_issuer_id !== undefined) {
     const v = String(b.sepidar_issuer_id).trim();
