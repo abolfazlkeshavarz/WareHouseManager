@@ -334,6 +334,11 @@ api.put('/settings', requireAdmin, (req, res) => {
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
+  if (b.sepidar_layout !== undefined) {
+    const v = String(b.sepidar_layout);
+    if (!['flat', 'first_row_only', 'header_row_blank', 'header_row_repeat', 'per_row'].includes(v)) throw new HttpError(400, 'چیدمان نامعتبر است.');
+    setSetting('sepidar_layout', v); changes.sepidar_layout = v;
+  }
   if (b.sepidar_date_format !== undefined) {
     const v = String(b.sepidar_date_format);
     if (!['slash', 'digits', 'dash', 'with_time'].includes(v)) throw new HttpError(400, 'قالب تاریخ نامعتبر است.');

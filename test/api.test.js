@@ -221,6 +221,26 @@ test('full flow: opening stock → storekeeper request → approve → history �
   assert.equal(at(1, 'qty'), 30);
   assert.equal(at(2, 'item_code'), '30801');
   assert.equal(at(2, 'qty'), 10);
+  // layouts: same items, different arrangement of the header
+  {
+    const { sepidarTable, sepidarGroupInfo } = await import('../server/services/exports.js');
+    const { setSetting } = await import('../server/db.js');
+    const layoutRows = [{ item_code: 'A', item_title: 'a', qty: 1 }, { item_code: 'B', item_title: 'b', qty: 2 }];
+    const layoutInfo = sepidarGroupInfo('consumption');
+    const idx = (k) => SEPIDAR_COLUMN_DEFAULTS.issue.filter((c) => c.enabled).findIndex((c) => c.key === k);
+    for (const [layout, expectRows, firstNumber, lastNumber] of [
+      ['flat', 2, '7', '7'], ['first_row_only', 2, '7', ''], ['header_row_blank', 3, '7', ''],
+      ['header_row_repeat', 3, '7', '7'], ['per_row', 2, '7', '8']]) {
+      setSetting('sepidar_layout', layout);
+      const t = sepidarTable(layoutInfo, layoutRows, { docNo: 7, date: '1405/07/18' });
+      assert.equal(t.length - 1, expectRows, layout);
+      assert.equal(t[1][idx('number')], firstNumber, layout + ' first');
+      assert.equal(t[t.length - 1][idx('number')], lastNumber, layout + ' last');
+      assert.equal(t[t.length - 1][idx('item_code')], 'B', layout + ' items kept');
+    }
+    setSetting('sepidar_layout', 'flat');
+  }
+
   // missing number / bad date are rejected before anything is marked as exported
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', date: '1405/07/18' })).status, 400);
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 5, date: 'x' })).status, 400);

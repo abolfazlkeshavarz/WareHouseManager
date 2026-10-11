@@ -14,6 +14,7 @@ const { setSetting } = await import('../server/db.js');
 const out = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'samples', 'sepidar');
 fs.mkdirSync(out, { recursive: true });
 fs.rmSync(path.join(out, 'date-tests'), { recursive: true, force: true });
+fs.rmSync(path.join(out, 'layout-tests'), { recursive: true, force: true });
 for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
 
 const ROWS = [
@@ -51,4 +52,21 @@ for (const [name, mode] of variants) {
   console.log('date-tests', name, '→', JSON.stringify(table[1].slice(0, 3)));
 }
 setSetting('sepidar_date_format', 'with_time');
+
+// The same 3-item خروج document in each layout: which one does Sepidar's importer turn into ONE document?
+fs.mkdirSync(path.join(out, 'layout-tests'), { recursive: true });
+const layouts = [
+  ['L1-header-row-then-items-blank', 'header_row_blank', 961],
+  ['L2-header-row-then-items-repeated', 'header_row_repeat', 962],
+  ['L3-header-on-first-item-only', 'first_row_only', 963],
+  ['L4-one-document-per-row', 'per_row', 971],
+];
+for (const [name, layout, no] of layouts) {
+  setSetting('sepidar_layout', layout);
+  const info = sepidarGroupInfo('consumption');
+  const table = sepidarTable(info, ROWS, { docNo: no, date: DATE });
+  fs.writeFileSync(path.join(out, 'layout-tests', `خروج-مصرف-${name}.xls`), await renderSepidar(table, 'xls'));
+  console.log('layout-tests', name, '->', table.length - 1, 'rows');
+}
+setSetting('sepidar_layout', 'flat');
 try { fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true }); } catch { /* the DB file is still open on Windows; the OS temp cleaner removes it */ }

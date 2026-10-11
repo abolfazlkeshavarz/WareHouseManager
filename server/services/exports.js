@@ -286,7 +286,7 @@ export function sepidarTable(info, rows, { docNo, date }) {
     dest: info.dest,
     dest_title: titles ? arabic(dest?.title ?? '') : '',
   };
-  return [cols.map((c) => c.header), ...rows.map((r, idx) => {
+  const body = rows.map((r, idx) => {
     const line = {
       row_no: String(idx + 1),
       base: '',
@@ -301,7 +301,39 @@ export function sepidarTable(info, rows, { docNo, date }) {
       line_notes: '',
     };
     return cols.map((c) => (c.key in header ? header[c.key] : line[c.key]) ?? '');
-  })];
+  });
+  return [cols.map((c) => c.header), ...applyLayout(body, cols, s.sepidar_layout || 'flat', docNo)];
+}
+
+/**
+ * How a multi-item document is laid out in the file. Sepidar's importer creates one document per row, so which
+ * layout it accepts as ONE document is found by testing (switchable in settings):
+ *  flat              header repeated on every item row (what its own export looks like)
+ *  first_row_only    header on the first item row, blank on the following item rows
+ *  header_row_blank  a header-only row, then item rows with blank header fields
+ *  header_row_repeat a header-only row, then item rows that repeat the header
+ *  per_row           one document per item row (numbers docNo, docNo+1, ...)
+ */
+const ITEM_KEYS = new Set(['item_kind', 'row_no', 'base', 'item_code', 'item_title', 'qty', 'price', 'line_total', 'amount',
+  'line_account', 'line_account_title', 'line_notes']);
+
+function applyLayout(rows, cols, layout, docNo) {
+  const isItem = cols.map((c) => ITEM_KEYS.has(c.key));
+  const blankHeader = (r) => r.map((v, i) => (isItem[i] ? v : ''));
+  const headerOnly = (r) => r.map((v, i) => (isItem[i] ? '' : v));
+  const numIdx = cols.findIndex((c) => c.key === 'number');
+  switch (layout) {
+    case 'first_row_only':
+      return rows.map((r, i) => (i === 0 ? r : blankHeader(r)));
+    case 'header_row_blank':
+      return rows.length ? [headerOnly(rows[0]), ...rows.map(blankHeader)] : rows;
+    case 'header_row_repeat':
+      return rows.length ? [headerOnly(rows[0]), ...rows] : rows;
+    case 'per_row':
+      return numIdx < 0 ? rows : rows.map((r, i) => r.map((v, j) => (j === numIdx ? String(docNo + i) : v)));
+    default:
+      return rows;
+  }
 }
 
 function checkHeader({ doc_no, date }) {
@@ -325,7 +357,8 @@ export async function createSepidarExport(user, { from, to, format, group, doc_n
       .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group, docNo, docDate, info.party).lastInsertRowid);
     const mark = db.prepare('UPDATE documents SET sepidar_batch_id = ? WHERE id = ?');
     for (const d of docs) mark.run(id, d.id);
-    const next = { ...(getSettings().sepidar_next_no || {}), [`${info.doc}:${info.warehouse}`]: docNo + 1 };
+    const advance = getSettings().sepidar_layout === 'per_row' ? rows.length : 1; // per_row uses one number per item row
+    const next = { ...(getSettings().sepidar_next_no || {}), [`${info.doc}:${info.warehouse}`]: docNo + advance };
     setSetting('sepidar_next_no', next);
     audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, lines: rows.length, doc_no: docNo });
     return { id, rows };
