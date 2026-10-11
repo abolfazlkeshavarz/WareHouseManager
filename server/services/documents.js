@@ -195,7 +195,7 @@ export function getDocument(id) {
   const doc = db.prepare(`${DOC_SELECT} WHERE d.id = ?`).get(id);
   if (!doc) return null;
   doc.lines = db.prepare(`SELECT l.id, l.item_id, l.qty, l.note, l.stock_before, l.stock_after,
-                                 i.code, i.name, i.variant, i.unit, i.image, i.stock AS current_stock
+                                 i.code, i.sepidar_code, i.name, i.variant, i.unit, i.image, i.stock AS current_stock
                           FROM document_lines l JOIN items i ON i.id = l.item_id
                           WHERE l.document_id = ? ORDER BY l.id`).all(id);
   return doc;

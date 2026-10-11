@@ -1,8 +1,44 @@
 import { api, qs } from '../api.js';
 import { store, isAdmin, refreshItems, refreshPending, reasonLabel, statusLabel } from '../store.js';
-import { h, icon, fa, faId, fmtDateTime, itemTitle, emptyState, thumb, codeTag, toast, confirmDialog, promptDialog, normSearch } from '../ui.js';
+import { h, icon, fa, faId, fmtDate, fmtDateTime, itemTitle, emptyState, thumb, codeTag, toast, confirmDialog, promptDialog, normSearch } from '../ui.js';
 import { navigate } from '../app.js';
 import { docCard } from './home.js';
+
+/**
+ * A one-page sheet for typing an approved document into Sepidar by hand: the same fields Sepidar asks for,
+ * in its order, with the Sepidar item codes. Printed through a print-only block (the rest of the page is hidden).
+ */
+function printSepidarSheet(d) {
+  const meta = store.meta;
+  const key = meta.reasons[d.reason]?.sepidar;
+  const g = key ? meta.sepidar_groups?.[key] : null;
+  const whMain = meta.warehouses.find((w) => w.code === meta.main_warehouse);
+  const destWh = d.dest_warehouse ? meta.warehouses.find((w) => w.code === d.dest_warehouse) : null;
+  const party = g?.party || '';
+  const row = (k, v) => h('tr', null, h('th', null, k), h('td', null, v || '—'));
+  const sheet = h('div', { class: 'print-sheet', dir: 'rtl' },
+    h('h2', null, 'برگه‌ی ثبت در سپیدار'),
+    h('table', { class: 'sheet-head' }, h('tbody', null,
+      row('سند در سپیدار', g ? `${g.kind} › ${g.type}` : 'این سند به سپیدار نمی‌رود'),
+      row('شماره‌ی سند سپیدار', '________________'),
+      row('تاریخ', fmtDate(d.decided_at || d.created_at)),
+      row('انبار', whMain ? `${whMain.title} (${whMain.code})` : meta.main_warehouse),
+      destWh ? row('انبار مقصد', `${destWh.title} (${destWh.code})`) : null,
+      party ? row(g.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', party) : row('طرف حساب', d.worker_name || ''),
+      row('شماره‌ی سند در سامانه', faId(d.doc_no)),
+      row('توضیحات', d.note))),
+    h('table', { class: 'sheet-items' },
+      h('thead', null, h('tr', null, ...['ردیف', 'کد کالا', 'نام کالا', 'تعداد', 'واحد', '✓'].map((t) => h('th', null, t)))),
+      h('tbody', null, ...d.lines.map((l, i) => h('tr', null,
+        h('td', null, fa(i + 1)), h('td', { class: 'ltr' }, l.sepidar_code || l.code), h('td', null, itemTitle(l)),
+        h('td', null, fa(l.qty)), h('td', null, l.unit), h('td', null, ''))))),
+    h('div', { class: 'sheet-foot' }, `ثبت‌کننده: ${d.created_by_name}${d.decided_by_name ? ` • تاییدکننده: ${d.decided_by_name}` : ''}`));
+  document.body.append(sheet);
+  document.body.classList.add('printing-sheet');
+  const done = () => { sheet.remove(); document.body.classList.remove('printing-sheet'); };
+  window.addEventListener('afterprint', done, { once: true });
+  setTimeout(() => window.print(), 50);
+}
 
 export async function docsView({ query }) {
   const admin = isAdmin();
@@ -110,6 +146,11 @@ export async function docDetailView({ params }) {
     tl.append(h('div', { class: 'ev' }, h('b', { style: { color: 'var(--warn)' } }, 'در انتظار تایید مدیر سیستم')));
   }
   body.append(h('div', { class: 'card' }, h('h2', null, 'وضعیت'), tl));
+
+  if (d.status === 'approved' && store.meta.reasons[d.reason]?.sepidar) {
+    body.append(h('button', { class: 'btn secondary block', onClick: () => printSepidarSheet(d) },
+      icon('printer'), 'چاپ برگه‌ی ثبت در سپیدار'));
+  }
 
   // actions
   if (d.status === 'pending') {

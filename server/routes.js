@@ -55,7 +55,7 @@ api.get('/meta', requireAuth, (req, res) => {
   const s = getSettings();
   res.json({
     roles: ROLES, reasons: REASONS, directions: DIRECTIONS, statuses: STATUSES, qr_prefix: QR_PREFIX,
-    company_name: s.company_name, sepidar_enabled: !!s.sepidar_enabled, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in,
+    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, sepidar_enabled: !!s.sepidar_enabled, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in,
     today: todayJalali(),
   });
 });
