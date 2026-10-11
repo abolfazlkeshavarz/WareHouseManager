@@ -131,8 +131,8 @@ export async function settingsView() {
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
   const mainWh = h('select', { class: 'input' },
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
-  const dateFmt = h('select', { class: 'input' }, ...[['slash', '1405/07/18 (پیش‌فرض)'], ['digits', '14050718'], ['dash', '1405-07-18'], ['with_time', '1405/07/18 12:00:00 ق.ظ']]
-    .map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_date_format || 'slash') }, l)));
+  const dateFmt = h('select', { class: 'input' }, ...[['with_time', '1405/07/18 12:00:00 ق.ظ (پیش‌فرض، مثل خروجی خود سپیدار)'], ['slash', '1405/07/18'], ['digits', '14050718'], ['dash', '1405-07-18']]
+    .map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_date_format || 'with_time') }, l)));
   const titles = h('input', { type: 'checkbox', checked: !!s.sepidar_titles, style: { width: '22px', height: '22px' } });
   const issuer = h('input', { class: 'input code', inputmode: 'numeric', value: s.sepidar_issuer_id ?? '', maxlength: 9, placeholder: 'خالی' });
   const accounts = {};

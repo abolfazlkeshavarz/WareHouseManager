@@ -221,12 +221,13 @@ function columnsFor(doc) {
 }
 
 /** "1405/07/18" in the format Sepidar's importer accepts (switchable in settings while we find which one it wants). */
-export function formatSepidarDate(date, mode = 'slash') {
+export function formatSepidarDate(date, mode = 'with_time') {
   switch (mode) {
     case 'digits': return date.replace(/\//g, '');          // 14050718
     case 'dash': return date.replace(/\//g, '-');            // 1405-07-18
     case 'with_time': return `${date} 12:00:00 ق.ظ`;          // what Sepidar's own export prints
-    default: return date;                                    // 1405/07/18
+    case 'slash': return date;                               // 1405/07/18
+    default: return `${date} 12:00:00 ق.ظ`;                  // what Sepidar's own export prints
   }
 }
 

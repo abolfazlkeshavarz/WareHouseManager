@@ -41,7 +41,7 @@ for (const [name, group, no, party] of files) {
 }
 
 // The same خروج file with each date format, to find the one Sepidar's importer accepts.
-const variants = [['A-slash-1405-07-18', 'slash'], ['B-digits-14050718', 'digits'], ['C-dash-1405-07-18', 'dash'], ['D-with-time', 'with_time']];
+const variants = [['A-with-time-1405-07-18-12-00-00', 'with_time'], ['B-slash-1405-07-18', 'slash'], ['C-digits-14050718', 'digits'], ['D-dash-1405-07-18', 'dash']];
 fs.mkdirSync(path.join(out, 'date-tests'), { recursive: true });
 for (const [name, mode] of variants) {
   setSetting('sepidar_date_format', mode);
@@ -50,5 +50,5 @@ for (const [name, mode] of variants) {
   fs.writeFileSync(path.join(out, 'date-tests', `خروج-مصرف-${name}.xls`), await renderSepidar(table, 'xls'));
   console.log('date-tests', name, '→', JSON.stringify(table[1].slice(0, 3)));
 }
-setSetting('sepidar_date_format', 'slash');
+setSetting('sepidar_date_format', 'with_time');
 try { fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true }); } catch { /* the DB file is still open on Windows; the OS temp cleaner removes it */ }

@@ -209,7 +209,7 @@ test('full flow: opening stock → storekeeper request → approve → history �
   // the document header is repeated on every row; everything is text except the quantity
   assert.equal(at(1, 'item_kind'), 'InventoryDeliveryItem'); // the template's first field (positional import)
   assert.equal(at(1, 'number'), '41');
-  assert.equal(at(1, 'date'), '1405/07/18'); // plain Jalali date: the importer parses each part as an integer
+  assert.equal(at(1, 'date'), '1405/07/18 12:00:00 ق.ظ'); // same text Sepidar's own export writes
   assert.equal(at(1, 'warehouse'), '1001');
   assert.equal(at(1, 'party'), '1001');
   assert.equal(at(1, 'dest'), '');

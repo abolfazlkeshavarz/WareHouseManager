@@ -156,7 +156,7 @@ export const DEFAULT_SETTINGS = {
   sepidar_accounts: {},
   sepidar_issuer_id: '',
   sepidar_titles: false,
-  sepidar_date_format: 'slash',
+  sepidar_date_format: 'with_time', // what Sepidar's own export writes; the importer returned an empty date for the plain forms we tried
   sepidar_next_no: {},
   sepidar_warehouses: DEFAULT_WAREHOUSES,
   sepidar_main_warehouse: '1001',
