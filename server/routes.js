@@ -341,7 +341,7 @@ api.put('/settings', requireAdmin, (req, res) => {
   }
   if (b.sepidar_txt_header !== undefined) {
     const v = String(b.sepidar_txt_header);
-    if (!['none', 'latin', 'row'].includes(v)) throw new HttpError(400, 'قالب فایل متنی نامعتبر است.');
+    if (!['none', 'latin', 'row', 'repeat', 'tab', 'space', 'semicolon'].includes(v)) throw new HttpError(400, 'قالب فایل متنی نامعتبر است.');
     setSetting('sepidar_txt_header', v); changes.sepidar_txt_header = v;
   }
   if (b.sepidar_layout !== undefined) {

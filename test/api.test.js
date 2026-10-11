@@ -265,6 +265,8 @@ test('full flow: opening stock → storekeeper request → approve → history �
     assert.equal(itemsText(r).toString(), '31400,100\r\n32800,50\r\n');
     assert.equal(itemsText(r, 'latin').toString(), 'Code,Quantity\r\n31400,100\r\n32800,50\r\n');
     assert.equal(itemsText(r, 'row').toString(), '1,31400,100\r\n2,32800,50\r\n');
+    assert.equal(itemsText([{ item_code: '1', qty: 3 }], 'repeat').toString(), '1\r\n1\r\n1\r\n');
+    assert.equal(itemsText(r, 'tab').toString(), '31400\t100\r\n32800\t50\r\n');
     assert.notEqual(itemsText(r)[0], 0xef); // no UTF-8 BOM
   }
 

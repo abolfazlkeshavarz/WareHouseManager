@@ -383,11 +383,24 @@ export async function regenerateSepidarBatch(id, format) {
  *   mode 'none'  -> 31400,100
  *   mode 'latin' -> first line "Code,Quantity"
  *   mode 'row'   -> row number first: 1,31400,100
+ *   mode 'repeat' -> the code once per unit (what a barcode scanner log looks like)
+ *   mode 'tab' / 'space' / 'semicolon' -> other separators
  */
 export function itemsText(rows, mode = 'none') {
   const lines = [];
   if (mode === 'latin') lines.push('Code,Quantity');
-  rows.forEach((r, i) => lines.push(`${mode === 'row' ? `${i + 1},` : ''}${r.item_code},${r.qty}`));
+  rows.forEach((r, i) => {
+    switch (mode) {
+      case 'repeat': // barcode-scanner style: one line per unit (capped, a scanner log is never huge)
+        for (let k = 0; k < Math.min(r.qty, 5000); k++) lines.push(String(r.item_code));
+        break;
+      case 'tab': lines.push(`${r.item_code}\t${r.qty}`); break;
+      case 'space': lines.push(`${r.item_code} ${r.qty}`); break;
+      case 'semicolon': lines.push(`${r.item_code};${r.qty}`); break;
+      case 'row': lines.push(`${i + 1},${r.item_code},${r.qty}`); break;
+      default: lines.push(`${r.item_code},${r.qty}`);
+    }
+  });
   return Buffer.from(lines.join('\r\n') + '\r\n', 'ascii');
 }
 

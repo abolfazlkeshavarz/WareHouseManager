@@ -148,6 +148,10 @@ export async function settingsView() {
     ['none', 'بدون عنوان: 31400,100'],
     ['latin', 'با عنوان انگلیسی در خط اول: Code,Quantity'],
     ['row', 'با ردیف: 1,31400,100'],
+    ['repeat', 'مثل اسکنر بارکد: کد به تعداد هر واحد یک خط'],
+    ['tab', 'کد و تعداد با Tab'],
+    ['space', 'کد و تعداد با فاصله'],
+    ['semicolon', 'کد;تعداد'],
   ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_txt_header || 'none') }, l)));
   const titles = h('input', { type: 'checkbox', checked: !!s.sepidar_titles, style: { width: '22px', height: '22px' } });
   const issuer = h('input', { class: 'input code', inputmode: 'numeric', value: s.sepidar_issuer_id ?? '', maxlength: 9, placeholder: 'خالی' });
