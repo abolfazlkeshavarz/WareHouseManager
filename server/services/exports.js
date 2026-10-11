@@ -236,13 +236,15 @@ export function sepidarTable(info, rows, { docNo, date }) {
   const g = SEPIDAR_GROUPS[info.base];
   const known = SEPIDAR_KNOWN_PARTIES[info.party] ?? {};
   const isPurchase = info.base === 'purchase';
-  const issuer = arabic(s.sepidar_issuer || 'سرپرست');
+  // "صادر کننده" is the Sepidar user: the name column is display-only and "(2)" is the user's numeric id (the
+  // importer parses it as an integer), so both stay blank unless an id is configured.
+  const issuerId = /^\d+$/.test(String(s.sepidar_issuer_id ?? '')) ? String(s.sepidar_issuer_id) : '';
   const acct = s.sepidar_accounts?.[info.base];
   const lineAccount = acct ?? g.line_account ?? '';
   const header = {
     item_kind: info.doc === 'receipt' ? 'InventoryReceiptItem' : 'InventoryDeliveryItem',
-    issuer,
-    issuer2: issuer,
+    issuer: '',
+    issuer2: issuerId,
     number: String(docNo),
     date: `${date} 12:00:00 ق.ظ`,
     warehouse: info.warehouse,

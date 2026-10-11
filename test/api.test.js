@@ -206,6 +206,8 @@ test('full flow: opening stock → storekeeper request → approve → history �
   const at = (r, k) => aoa[r][colKeys.indexOf(k)];
   // the document header is repeated on every row; everything is text except quantity/totals
   assert.equal(at(1, 'item_kind'), 'InventoryDeliveryItem');
+  assert.equal(at(1, 'issuer'), '');  // display-only name column stays blank
+  assert.equal(at(1, 'issuer2'), ''); // numeric user id: blank unless configured (a name made Sepidar's import fail)
   assert.equal(at(1, 'number'), '41');
   assert.equal(at(1, 'date'), '1405/07/18 12:00:00 ق.ظ');
   assert.equal(at(1, 'warehouse'), '1001');

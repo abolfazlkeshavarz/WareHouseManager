@@ -131,7 +131,7 @@ export async function settingsView() {
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
   const mainWh = h('select', { class: 'input' },
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
-  const issuer = h('input', { class: 'input', value: s.sepidar_issuer ?? '', maxlength: 60 });
+  const issuer = h('input', { class: 'input code', inputmode: 'numeric', value: s.sepidar_issuer_id ?? '', maxlength: 9, placeholder: 'خالی' });
   const accounts = {};
   for (const [k, g] of Object.entries(groups)) {
     accounts[k] = h('input', { class: 'input code', value: s.sepidar_accounts?.[k] || g.account || g.line_account || '', maxlength: 30, placeholder: '—' });
@@ -174,7 +174,7 @@ export async function settingsView() {
       h('h2', null, 'فایل دریافت سپیدار — مقادیر پیش‌فرض'),
       h('div', { class: 'form-grid two' },
         ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
-        field('نام «صادر کننده» در فایل', issuer, 'همان نام کاربری که در سپیدار وارد می‌شود، مثلاً «سرپرست»'),
+        field('شناسه‌ی عددی «صادر کننده (2)»', issuer, 'اگر خالی بماند سپیدار کاربر وارد شده را می‌گذارد؛ مقدار متنی (نام) باعث خطای «داده‌ی وارد شده صحیح نمی‌باشد» می‌شود'),
         ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].kind} › ${groups[k].type}`, el)))),
     h('div', { class: 'card stack', id: 'sepidar-cols' },
       h('h2', null, 'ستون‌های فایل دریافت سپیدار'),
@@ -191,7 +191,7 @@ export async function settingsView() {
           sepidar_enabled: sepOn.checked,
           sepidar_columns_v2: cols,
           sepidar_party_codes: Object.fromEntries(Object.entries(party).map(([k, el]) => [k, el.value])),
-          sepidar_issuer: issuer.value,
+          sepidar_issuer_id: issuer.value,
           sepidar_accounts: Object.fromEntries(Object.entries(accounts).map(([k, el]) => [k, el.value])),
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);

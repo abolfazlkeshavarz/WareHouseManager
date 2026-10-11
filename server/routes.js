@@ -334,9 +334,10 @@ api.put('/settings', requireAdmin, (req, res) => {
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
-  if (b.sepidar_issuer !== undefined) {
-    const v = String(b.sepidar_issuer).trim().slice(0, 60);
-    if (v) { setSetting('sepidar_issuer', v); changes.sepidar_issuer = v; }
+  if (b.sepidar_issuer_id !== undefined) {
+    const v = String(b.sepidar_issuer_id).trim();
+    if (v && !/^\d{1,9}$/.test(v)) throw new HttpError(400, 'شناسه‌ی کاربر باید عدد باشد.');
+    setSetting('sepidar_issuer_id', v); changes.sepidar_issuer_id = v;
   }
   if (b.sepidar_warehouses !== undefined) {
     const list = (Array.isArray(b.sepidar_warehouses) ? b.sepidar_warehouses : [])

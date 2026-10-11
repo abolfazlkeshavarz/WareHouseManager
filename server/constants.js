@@ -149,7 +149,7 @@ export const DEFAULT_SETTINGS = {
   sepidar_columns_v2: SEPIDAR_COLUMN_DEFAULTS,
   sepidar_party_codes: {},
   sepidar_accounts: {},
-  sepidar_issuer: 'سرپرست',
+  sepidar_issuer_id: '',
   sepidar_next_no: {},
   sepidar_warehouses: DEFAULT_WAREHOUSES,
   sepidar_main_warehouse: '1001',
