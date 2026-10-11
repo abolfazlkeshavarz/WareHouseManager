@@ -76,6 +76,7 @@ export const DEFAULT_WAREHOUSES = [
   { code: '1004', title: 'انبار  واسط ضایعات' }, // two spaces, exactly as Sepidar has it
 ];
 
+// Sepidar fills the template's fields BY POSITION (confirmed from the import preview), starting with "نوع قلم".
 // Column titles and ORDER copied from your two template exports (sheet "Test"). Only the real data columns are
 // enabled by default: Sepidar's receive template rejects a file that has more columns than the template selects
 // ("تعداد ستون های فایل ورودی بیشتر از ستون های انتخاب شده است"), and the other columns are display-only. Turn more
@@ -85,7 +86,7 @@ export const DEFAULT_WAREHOUSES = [
 // and rows with the same number + warehouse form one document.
 export const SEPIDAR_COLUMN_DEFAULTS = {
   receipt: [
-    { key: "item_kind", header: 'نوع قلم', enabled: false },
+    { key: "item_kind", header: 'نوع قلم', enabled: true },
     { key: "issuer", header: 'رسيد انبار صادر كننده', enabled: false },
     { key: "issuer2", header: 'رسيد انبار صادر كننده (2)', enabled: false },
     { key: "number", header: 'رسيد انبار شماره', enabled: true },
@@ -115,7 +116,7 @@ export const SEPIDAR_COLUMN_DEFAULTS = {
     { key: "line_notes", header: 'قلم رسيد انبار توضيحات', enabled: false },
   ],
   issue: [
-    { key: "item_kind", header: 'نوع قلم', enabled: false },
+    { key: "item_kind", header: 'نوع قلم', enabled: true },
     { key: "notes", header: 'خروج انبار توضيحات', enabled: false },
     { key: "number", header: 'خروج انبار شماره', enabled: true },
     { key: "issuer", header: 'خروج انبار صادر كننده', enabled: false },

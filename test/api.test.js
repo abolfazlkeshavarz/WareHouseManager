@@ -202,11 +202,12 @@ test('full flow: opening stock → storekeeper request → approve → history �
   const enabled = SEPIDAR_COLUMN_DEFAULTS.issue.filter((c) => c.enabled);
   const colKeys = enabled.map((c) => c.key);
   // lean file: only real data columns (Sepidar rejects files with more columns than the template selects)
-  assert.deepEqual(colKeys, ['number', 'date', 'warehouse', 'party', 'dest', 'type', 'row_no', 'item_code', 'qty', 'line_account']);
+  assert.deepEqual(colKeys, ['item_kind', 'number', 'date', 'warehouse', 'party', 'dest', 'type', 'row_no', 'item_code', 'qty', 'line_account']);
   assert.deepEqual(aoa[0], enabled.map((c) => c.header));
   assert.equal(aoa.length, 3); // header + 2 items
   const at = (r, k) => aoa[r][colKeys.indexOf(k)];
   // the document header is repeated on every row; everything is text except the quantity
+  assert.equal(at(1, 'item_kind'), 'InventoryDeliveryItem'); // the template's first field (positional import)
   assert.equal(at(1, 'number'), '41');
   assert.equal(at(1, 'date'), '1405/07/18'); // plain Jalali date: the importer parses each part as an integer
   assert.equal(at(1, 'warehouse'), '1001');
