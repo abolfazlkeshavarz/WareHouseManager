@@ -1,6 +1,8 @@
 import { api, qs } from '../api.js';
 import { store, isAdmin, refreshItems, refreshPending, reasonLabel, statusLabel } from '../store.js';
-import { h, icon, fa, faId, fmtDate, fmtDateTime, itemTitle, emptyState, thumb, codeTag, toast, confirmDialog, promptDialog, normSearch } from '../ui.js';
+import {
+  h, icon, fa, faId, fmtDate, fmtDateTime, itemTitle, emptyState, thumb, codeTag, toast, confirmDialog, promptDialog, normSearch, downloadBlob,
+} from '../ui.js';
 import { navigate } from '../app.js';
 import { docCard } from './home.js';
 
@@ -147,9 +149,20 @@ export async function docDetailView({ params }) {
   }
   body.append(h('div', { class: 'card' }, h('h2', null, 'وضعیت'), tl));
 
-  if (d.status === 'approved' && store.meta.reasons[d.reason]?.sepidar) {
-    body.append(h('button', { class: 'btn secondary block', onClick: () => printSepidarSheet(d) },
-      icon('printer'), 'چاپ برگه‌ی ثبت در سپیدار'));
+  if (d.status === 'approved' && store.meta.reasons[d.reason]?.sepidar && isAdmin()) {
+    const key = store.meta.reasons[d.reason].sepidar;
+    const g = store.meta.sepidar_groups?.[key];
+    body.append(h('div', { class: 'card stack' },
+      h('h2', null, 'سپیدار'),
+      h('div', { class: 'muted small' }, g ? `${g.kind} › ${g.type}` : ''),
+      h('button', { class: 'btn block', onClick: async () => {
+        try {
+          const res = await api.blob('GET', `/api/documents/${d.id}/barcodes.txt`);
+          downloadBlob(await res.blob(), `بارکد-سند-${d.doc_no}.txt`);
+          toast(`فایل بارکد آماده شد (${fa(res.headers.get('X-Lines') || '')} خط).`, 'ok');
+        } catch (ex) { toast(ex.message, 'err'); }
+      } }, icon('download'), 'فایل بارکد سپیدار (TXT)'),
+      h('button', { class: 'btn secondary block', onClick: () => printSepidarSheet(d) }, icon('printer'), 'چاپ برگه‌ی ثبت در سپیدار')));
   }
 
   // actions

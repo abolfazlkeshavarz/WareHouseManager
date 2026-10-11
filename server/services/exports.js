@@ -1,13 +1,13 @@
 import ExcelJS from 'exceljs';
-import { db, tx, nowISO, audit, getSettings, setSetting } from '../db.js';
+import { db, tx, nowISO, audit, getSettings } from '../db.js';
 import { HttpError } from '../auth.js';
-import XLSX from 'xlsx';
-import { REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS, SEPIDAR_COLUMN_DEFAULTS, SEPIDAR_KNOWN_PARTIES } from '../constants.js';
-import { parseJalali, latinDigits } from '../../public/js/lib/jalali.js';
+import { REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS } from '../constants.js';
 import { jalaliDate, clockTime } from '../../public/js/lib/jalali.js';
 import { queryMovements } from './movements.js';
 
 const itemLabel = (r) => (r.variant ? `${r.name} (${r.variant})` : r.name);
+const weekdayFmt = new Intl.DateTimeFormat('fa-IR', { weekday: 'long', timeZone: 'Asia/Tehran' });
+const weekday = (iso) => weekdayFmt.format(new Date(iso));
 
 function sheet(wb, title, columns) {
   const ws = wb.addWorksheet(title, { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
@@ -25,13 +25,19 @@ function finish(ws) {
   ws.eachRow((row, n) => { if (n > 1) row.alignment = { vertical: 'middle', wrapText: true }; });
 }
 
-/** Complete export: stock snapshot + every movement (all statuses) + documents + audit trail. */
+const GREEN = { color: { argb: 'FF1B7F3B' }, bold: true };
+const ORANGE = { color: { argb: 'FFC2410C' }, bold: true };
+
+/**
+ * The complete export (for ourselves). Every sheet answers "who added / dropped which part, when, how many, and what
+ * was left" — per movement, per part per day, and per person per day.
+ */
 export async function buildFullExport({ from, to, fromLabel, toLabel }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'انبار قطعات';
   wb.created = new Date();
 
-  // 1) stock
+  // 1) current stock
   const items = db.prepare('SELECT * FROM items ORDER BY COALESCE(row_no, 9999), id').all();
   const ws1 = sheet(wb, 'موجودی فعلی', [
     { header: 'ردیف', key: 'n', width: 7 }, { header: 'کد', key: 'code', width: 12 },
@@ -53,34 +59,81 @@ export async function buildFullExport({ from, to, fromLabel, toLabel }) {
   });
   finish(ws1);
 
-  // 2) movements
+  // every movement line, oldest first
   const mv = queryMovements({ from, to }, { limit: null, order: 'ASC' }).rows;
-  const ws2 = sheet(wb, 'تاریخچه حرکات', [
-    { header: 'شماره سند', key: 'doc_no', width: 11 }, { header: 'تاریخ', key: 'date', width: 12 },
-    { header: 'ساعت', key: 'time', width: 8 }, { header: 'نوع', key: 'dir', width: 8 },
-    { header: 'علت', key: 'reason', width: 26 }, { header: 'کد', key: 'code', width: 12 },
-    { header: 'نام قطعه', key: 'name', width: 34 }, { header: 'تعداد', key: 'qty', width: 9 },
+
+  // 2) day by day, part by part: who added / dropped, at what time
+  const detail = [...mv].sort((a, b) => {
+    const da = jalaliDate(a.effective_at); const db_ = jalaliDate(b.effective_at);
+    if (da !== db_) return a.effective_at < b.effective_at ? -1 : 1;
+    if (a.code !== b.code) return a.code < b.code ? -1 : 1;
+    return a.effective_at < b.effective_at ? -1 : a.effective_at > b.effective_at ? 1 : a.line_id - b.line_id;
+  });
+  const ws2 = sheet(wb, 'ریز حرکات روزانه', [
+    { header: 'تاریخ', key: 'date', width: 12 }, { header: 'روز هفته', key: 'wd', width: 11 },
+    { header: 'ساعت اعمال', key: 'time', width: 10 }, { header: 'ساعت ثبت', key: 'ctime', width: 10 },
+    { header: 'کد', key: 'code', width: 12 }, { header: 'نام قطعه', key: 'name', width: 34 },
+    { header: 'نوع', key: 'dir', width: 8 }, { header: 'ورود', key: 'in', width: 9 }, { header: 'خروج', key: 'out', width: 9 },
     { header: 'موجودی قبل', key: 'before', width: 11 }, { header: 'موجودی بعد', key: 'after', width: 11 },
-    { header: 'کارگر / طرف مقابل', key: 'worker', width: 18 }, { header: 'توضیح سند', key: 'doc_note', width: 28 },
-    { header: 'توضیح ردیف', key: 'line_note', width: 24 }, { header: 'ثبت‌کننده', key: 'creator', width: 14 },
-    { header: 'وضعیت', key: 'status', width: 14 }, { header: 'تاییدکننده', key: 'decider', width: 14 },
-    { header: 'تاریخ ثبت', key: 'created', width: 18 }, { header: 'یادداشت تصمیم', key: 'decision', width: 24 },
-    { header: 'ارسال به سپیدار', key: 'sepidar', width: 14 },
+    { header: 'ثبت‌کننده', key: 'creator', width: 14 }, { header: 'تاییدکننده', key: 'decider', width: 14 },
+    { header: 'کارگر / طرف مقابل', key: 'worker', width: 18 }, { header: 'علت', key: 'reason', width: 26 },
+    { header: 'شماره سند', key: 'doc_no', width: 11 }, { header: 'وضعیت', key: 'status', width: 14 },
+    { header: 'توضیح ردیف', key: 'line_note', width: 24 }, { header: 'توضیح سند', key: 'doc_note', width: 28 },
+    { header: 'انبار مقصد', key: 'dest', width: 11 }, { header: 'ارسال به سپیدار', key: 'sepidar', width: 14 },
   ]);
-  for (const r of mv) {
+  const destByDoc = new Map(db.prepare('SELECT id, dest_warehouse FROM documents').all().map((r) => [r.id, r.dest_warehouse]));
+  for (const r of detail) {
     const row = ws2.addRow({
-      doc_no: r.doc_no, date: jalaliDate(r.effective_at), time: clockTime(r.effective_at), dir: DIRECTIONS[r.direction],
-      reason: REASONS[r.reason]?.label ?? r.reason, code: r.code, name: itemLabel(r), qty: r.qty,
-      before: r.stock_before, after: r.stock_after, worker: r.worker_name, doc_note: r.doc_note, line_note: r.line_note,
-      creator: r.created_by_name, status: STATUSES[r.status], decider: r.decided_by_name ?? '',
-      created: `${jalaliDate(r.created_at)} ${clockTime(r.created_at)}`, decision: r.decision_note,
+      date: jalaliDate(r.effective_at), wd: weekday(r.effective_at), time: clockTime(r.effective_at), ctime: clockTime(r.created_at),
+      code: r.code, name: itemLabel(r), dir: DIRECTIONS[r.direction],
+      in: r.direction === 'in' ? r.qty : null, out: r.direction === 'out' ? r.qty : null,
+      before: r.stock_before, after: r.stock_after,
+      creator: r.created_by_name, decider: r.decided_by_name ?? '',
+      worker: r.worker_name, reason: REASONS[r.reason]?.label ?? r.reason, doc_no: r.doc_no, status: STATUSES[r.status],
+      line_note: r.line_note, doc_note: r.doc_note, dest: destByDoc.get(r.doc_id) || '',
       sepidar: r.sepidar_batch_id ? `دسته ${r.sepidar_batch_id}` : '',
     });
-    row.getCell('dir').font = { color: { argb: r.direction === 'in' ? 'FF1B7F3B' : 'FFC2410C' }, bold: true };
+    row.getCell('in').font = GREEN;
+    row.getCell('out').font = ORANGE;
   }
   finish(ws2);
 
-  // 3) documents
+  // 3) per day per part: opening, in, out, closing (approved movements only)
+  const applied = detail.filter((r) => r.status === 'approved');
+  const byDayItem = new Map();
+  for (const r of applied) {
+    const key = `${jalaliDate(r.effective_at)}|${r.item_id}`;
+    let g = byDayItem.get(key);
+    if (!g) {
+      g = { date: jalaliDate(r.effective_at), at: r.effective_at, code: r.code, name: itemLabel(r), opening: r.stock_before,
+        in: 0, out: 0, closing: r.stock_after, moves: 0, first: r.effective_at, last: r.effective_at, users: new Set(), workers: new Set() };
+      byDayItem.set(key, g);
+    }
+    if (r.direction === 'in') g.in += r.qty; else g.out += r.qty;
+    g.closing = r.stock_after;
+    g.moves += 1;
+    g.last = r.effective_at;
+    g.users.add(r.created_by_name);
+    if (r.worker_name) g.workers.add(r.worker_name);
+  }
+  const ws3 = sheet(wb, 'خلاصه روزانه قطعات', [
+    { header: 'تاریخ', key: 'date', width: 12 }, { header: 'روز هفته', key: 'wd', width: 11 },
+    { header: 'کد', key: 'code', width: 12 }, { header: 'نام قطعه', key: 'name', width: 34 },
+    { header: 'موجودی اول روز', key: 'opening', width: 14 }, { header: 'جمع ورود', key: 'in', width: 10 },
+    { header: 'جمع خروج', key: 'out', width: 10 }, { header: 'موجودی آخر روز', key: 'closing', width: 14 },
+    { header: 'تعداد حرکت', key: 'moves', width: 10 }, { header: 'اولین ساعت', key: 'first', width: 11 },
+    { header: 'آخرین ساعت', key: 'last', width: 11 }, { header: 'ثبت‌کنندگان', key: 'users', width: 24 },
+    { header: 'کارگران', key: 'workers', width: 28 },
+  ]);
+  for (const g of [...byDayItem.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.code < b.code ? -1 : 1))) {
+    ws3.addRow({
+      date: g.date, wd: weekday(g.at), code: g.code, name: g.name, opening: g.opening, in: g.in, out: g.out, closing: g.closing,
+      moves: g.moves, first: clockTime(g.first), last: clockTime(g.last), users: [...g.users].join('، '), workers: [...g.workers].join('، '),
+    });
+  }
+  finish(ws3);
+
+  // 4) per day per person
   const docs = db.prepare(`
     SELECT d.*, cu.display_name AS creator, du.display_name AS decider,
            (SELECT COUNT(*) FROM document_lines l WHERE l.document_id = d.id) AS lines,
@@ -88,58 +141,120 @@ export async function buildFullExport({ from, to, fromLabel, toLabel }) {
     FROM documents d JOIN users cu ON cu.id = d.created_by LEFT JOIN users du ON du.id = d.decided_by
     WHERE (? IS NULL OR COALESCE(d.decided_at, d.created_at) >= ?) AND (? IS NULL OR COALESCE(d.decided_at, d.created_at) < ?)
     ORDER BY d.id`).all(from ?? null, from ?? null, to ?? null, to ?? null);
-  const ws3 = sheet(wb, 'اسناد', [
+  const byDayUser = new Map();
+  const bucket = (date, at, user) => {
+    const key = `${date}|${user}`;
+    let g = byDayUser.get(key);
+    if (!g) { g = { date, at, user, created: 0, lines: 0, in: 0, out: 0, approved: 0, rejected: 0 }; byDayUser.set(key, g); }
+    return g;
+  };
+  for (const d of docs) {
+    const g = bucket(jalaliDate(d.created_at), d.created_at, d.creator);
+    g.created += 1;
+    g.lines += d.lines;
+    if (d.status === 'approved') { if (d.direction === 'in') g.in += d.total; else g.out += d.total; }
+    if (d.decided_by && d.decider && d.decided_by !== d.created_by && d.decided_at) {
+      const a = bucket(jalaliDate(d.decided_at), d.decided_at, d.decider);
+      if (d.status === 'approved') a.approved += 1; else if (d.status === 'rejected') a.rejected += 1;
+    }
+  }
+  const ws4 = sheet(wb, 'خلاصه روزانه کاربران', [
+    { header: 'تاریخ', key: 'date', width: 12 }, { header: 'روز هفته', key: 'wd', width: 11 },
+    { header: 'کاربر', key: 'user', width: 16 }, { header: 'اسناد ثبت‌شده', key: 'created', width: 13 },
+    { header: 'ردیف‌ها', key: 'lines', width: 9 }, { header: 'جمع ورود (تاییدشده)', key: 'in', width: 17 },
+    { header: 'جمع خروج (تاییدشده)', key: 'out', width: 17 }, { header: 'تاییدهای او', key: 'approved', width: 11 },
+    { header: 'ردهای او', key: 'rejected', width: 10 },
+  ]);
+  for (const g of [...byDayUser.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.user < b.user ? -1 : 1))) {
+    ws4.addRow({ date: g.date, wd: weekday(g.at), user: g.user, created: g.created, lines: g.lines, in: g.in, out: g.out, approved: g.approved, rejected: g.rejected });
+  }
+  finish(ws4);
+
+  // 5) documents
+  const ws5 = sheet(wb, 'اسناد', [
     { header: 'شماره سند', key: 'no', width: 11 }, { header: 'تاریخ ثبت', key: 'created', width: 18 },
     { header: 'نوع', key: 'dir', width: 8 }, { header: 'علت', key: 'reason', width: 26 },
     { header: 'کارگر / طرف مقابل', key: 'worker', width: 18 }, { header: 'انبار مقصد', key: 'dest', width: 12 },
-    { header: 'تعداد ردیف', key: 'lines', width: 10 },
-    { header: 'جمع تعداد', key: 'total', width: 10 }, { header: 'توضیح', key: 'note', width: 30 },
-    { header: 'ثبت‌کننده', key: 'creator', width: 14 }, { header: 'وضعیت', key: 'status', width: 14 },
-    { header: 'تاییدکننده', key: 'decider', width: 14 }, { header: 'تاریخ تصمیم', key: 'decided', width: 18 },
-    { header: 'یادداشت تصمیم', key: 'dnote', width: 26 },
+    { header: 'تعداد ردیف', key: 'lines', width: 10 }, { header: 'جمع تعداد', key: 'total', width: 10 },
+    { header: 'توضیح', key: 'note', width: 30 }, { header: 'ثبت‌کننده', key: 'creator', width: 14 },
+    { header: 'وضعیت', key: 'status', width: 14 }, { header: 'تاییدکننده', key: 'decider', width: 14 },
+    { header: 'تاریخ تصمیم', key: 'decided', width: 18 }, { header: 'یادداشت تصمیم', key: 'dnote', width: 26 },
   ]);
   for (const d of docs) {
-    ws3.addRow({
+    ws5.addRow({
       no: d.doc_no, created: `${jalaliDate(d.created_at)} ${clockTime(d.created_at)}`, dir: DIRECTIONS[d.direction],
-      reason: REASONS[d.reason]?.label ?? d.reason, worker: d.worker_name, dest: d.dest_warehouse, lines: d.lines, total: d.total, note: d.note,
-      creator: d.creator, status: STATUSES[d.status], decider: d.decider ?? '',
+      reason: REASONS[d.reason]?.label ?? d.reason, worker: d.worker_name, dest: d.dest_warehouse, lines: d.lines, total: d.total,
+      note: d.note, creator: d.creator, status: STATUSES[d.status], decider: d.decider ?? '',
       decided: d.decided_at ? `${jalaliDate(d.decided_at)} ${clockTime(d.decided_at)}` : '', dnote: d.decision_note,
     });
   }
-  finish(ws3);
+  finish(ws5);
 
-  // 4) audit
-  const logs = db.prepare(`SELECT * FROM audit_log WHERE (? IS NULL OR at >= ?) AND (? IS NULL OR at < ?) ORDER BY id`)
+  // 6) audit trail
+  const logs = db.prepare('SELECT * FROM audit_log WHERE (? IS NULL OR at >= ?) AND (? IS NULL OR at < ?) ORDER BY id')
     .all(from ?? null, from ?? null, to ?? null, to ?? null);
-  const ws4 = sheet(wb, 'گزارش ممیزی', [
+  const ws6 = sheet(wb, 'گزارش ممیزی', [
     { header: 'تاریخ', key: 'date', width: 12 }, { header: 'ساعت', key: 'time', width: 8 },
     { header: 'کاربر', key: 'user', width: 14 }, { header: 'عملیات', key: 'action', width: 26 },
     { header: 'موجودیت', key: 'entity', width: 12 }, { header: 'شناسه', key: 'id', width: 10 },
     { header: 'جزئیات', key: 'detail', width: 60 },
   ]);
   for (const l of logs) {
-    ws4.addRow({ date: jalaliDate(l.at), time: clockTime(l.at), user: l.username, action: l.action, entity: l.entity, id: l.entity_id, detail: l.detail });
+    ws6.addRow({ date: jalaliDate(l.at), time: clockTime(l.at), user: l.username, action: l.action, entity: l.entity, id: l.entity_id, detail: l.detail });
   }
-  finish(ws4);
+  finish(ws6);
 
-  // cover info
   const info = wb.addWorksheet('اطلاعات گزارش', { views: [{ rightToLeft: true }] });
-  info.columns = [{ width: 24 }, { width: 50 }];
+  info.columns = [{ width: 28 }, { width: 60 }];
   info.addRows([
     ['شرکت', getSettings().company_name],
     ['تاریخ تهیه گزارش', `${jalaliDate(new Date())} ${clockTime(new Date())}`],
     ['بازه گزارش', `${fromLabel || 'از ابتدا'} تا ${toLabel || 'اکنون'}`],
     ['تعداد ردیف حرکات', mv.length],
+    ['شرح برگه‌ها', 'ریز حرکات روزانه: هر ورود و خروج با ساعت و نام ثبت‌کننده/تاییدکننده • خلاصه روزانه قطعات: اول روز، ورود، خروج، آخر روز • خلاصه روزانه کاربران: فعالیت هر نفر در هر روز'],
+    ['«ساعت اعمال»', 'لحظه‌ای که موجودی واقعاً تغییر کرده (برای خروج‌ها لحظه‌ی تایید مدیر)'],
+    ['«ساعت ثبت»', 'لحظه‌ای که انباردار درخواست را ثبت کرده'],
   ]);
   info.getColumn(1).font = { bold: true };
 
   return wb.xlsx.writeBuffer();
 }
 
-// ---------- Sepidar ----------
-// Sepidar documents are created one by one (رسید انبار with type خرید/تولید/سایر, or خروج انبار), so the export is
-// one file per group; each file holds the item lines (code, title, unit, quantity) to import into that document.
+// ---------- Sepidar: barcode file ----------
+// Sepidar's document form has a barcode input that reads one barcode per line and adds ONE unit of the matching item
+// per line (verified with your Sepidar). The barcode of an item is its code, so a document's file is its item codes,
+// each repeated once per unit.
 
+const MAX_LINES_PER_ITEM = 50000;
+
+/** "31400" repeated qty times, CRLF, no BOM. */
+export function barcodeText(rows) {
+  const lines = [];
+  let capped = false;
+  for (const r of rows) {
+    const n = Math.min(r.qty, MAX_LINES_PER_ITEM);
+    if (r.qty > MAX_LINES_PER_ITEM) capped = true;
+    for (let k = 0; k < n; k++) lines.push(String(r.item_code));
+  }
+  return { buffer: Buffer.from(lines.length ? lines.join('\r\n') + '\r\n' : '', 'utf8'), lines: lines.length, capped };
+}
+
+function sepidarRows(docIds) {
+  if (!docIds.length) return [];
+  const rows = db.prepare(`
+    SELECT l.qty, i.code, i.sepidar_code, i.name, i.variant, i.id AS item_id
+    FROM document_lines l JOIN documents d ON d.id = l.document_id JOIN items i ON i.id = l.item_id
+    WHERE d.id IN (${docIds.map(() => '?').join(',')}) ORDER BY d.decided_at, d.id, l.id`).all(...docIds);
+  const byItem = new Map();
+  for (const r of rows) {
+    const e = byItem.get(r.item_id) || { item_code: r.sepidar_code || r.code, name: itemLabel(r), qty: 0 };
+    e.qty += r.qty;
+    byItem.set(r.item_id, e);
+  }
+  return [...byItem.values()];
+}
+
+/** Approved documents that map to a Sepidar document type, optionally only not-yet-exported ones. */
 function sepidarCandidates({ from, to, includeExported, group }) {
   const where = ["d.status = 'approved'"];
   const params = [];
@@ -159,433 +274,64 @@ function groupKey(d) {
   return base === 'transfer' ? `transfer:${d.dest_warehouse || REASONS[d.reason].dest_default || ''}` : base;
 }
 
-function groupInfo(key, partyOverride) {
+export function sepidarGroupInfo(key) {
   const [base, dest] = String(key).split(':');
   const def = SEPIDAR_GROUPS[base];
   if (!def) return null;
   const s = getSettings();
   const main = s.sepidar_warehouses.find((w) => w.code === s.sepidar_main_warehouse);
-  const party = String(partyOverride ?? s.sepidar_party_codes?.[base] ?? def.party ?? '').trim();
   const parts = [`انبار: ${main?.title ?? 'انبار'} (${s.sepidar_main_warehouse})`];
   if (base === 'transfer') {
     const d = s.sepidar_warehouses.find((w) => w.code === dest);
     parts.push(`انبار مقصد: ${d?.title ?? dest} (${dest})`);
-  } else if (party) {
-    parts.push(`${def.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده'}: ${party}`);
   }
-  return {
-    key, doc: def.doc, kind: def.kind, type: def.type, dest: dest || '', party, base,
-    warehouse: s.sepidar_main_warehouse, hint: parts.join(' • '),
-    next_no: s.sepidar_next_no?.[`${def.doc}:${s.sepidar_main_warehouse}`] ?? '',
-  };
+  return { key, base, doc: def.doc, kind: def.kind, type: def.type, dest: dest || '', warehouse: s.sepidar_main_warehouse, hint: parts.join(' • ') };
 }
 
 export function sepidarPreview(range) {
   const docs = sepidarCandidates({ ...range, includeExported: false });
-  const keys = [...Object.keys(SEPIDAR_GROUPS).filter((k) => k !== 'transfer'), ...new Set(docs.filter((d) => d.group.startsWith('transfer')).map((d) => d.group))];
+  const keys = [...Object.keys(SEPIDAR_GROUPS).filter((k) => k !== 'transfer'),
+    ...new Set(docs.filter((d) => d.group.startsWith('transfer')).map((d) => d.group))];
   const groups = keys.map((key) => {
-    const def = groupInfo(key);
     const ds = docs.filter((d) => d.group === key);
-    const sums = ds.length
-      ? db.prepare(`SELECT COUNT(DISTINCT item_id) AS c, COALESCE(SUM(qty),0) AS q FROM document_lines
-                    WHERE document_id IN (${ds.map(() => '?').join(',')})`).get(...ds.map((d) => d.id))
-      : { c: 0, q: 0 };
-    return { ...def, doc_count: ds.length, item_count: sums.c, total_qty: sums.q };
+    const rows = sepidarRows(ds.map((d) => d.id));
+    return { ...sepidarGroupInfo(key), doc_count: ds.length, item_count: rows.length, total_qty: rows.reduce((n, r) => n + r.qty, 0) };
   });
-  const batches = db.prepare(`SELECT b.*, u.display_name AS by_name FROM sepidar_batches b JOIN users u ON u.id = b.created_by ORDER BY b.id DESC LIMIT 15`).all();
+  const batches = db.prepare(`SELECT b.*, u.display_name AS by_name FROM sepidar_batches b JOIN users u ON u.id = b.created_by
+                              ORDER BY b.id DESC LIMIT 15`).all();
   return { groups, batches };
 }
 
-/** Lines of a group, summed per item (a Sepidar document holds one line per item). */
-function sepidarRows(docIds) {
-  if (!docIds.length) return [];
-  const rows = db.prepare(`
-    SELECT l.qty, i.code, i.sepidar_code, i.name, i.variant, i.id AS item_id
-    FROM document_lines l JOIN documents d ON d.id = l.document_id JOIN items i ON i.id = l.item_id
-    WHERE d.id IN (${docIds.map(() => '?').join(',')}) ORDER BY d.decided_at, d.id, l.id`).all(...docIds);
-  const byItem = new Map();
-  for (const r of rows) {
-    const e = byItem.get(r.item_id) || { item_code: r.sepidar_code || r.code, item_title: itemLabel(r), qty: 0 };
-    e.qty += r.qty;
-    byItem.set(r.item_id, e);
-  }
-  return [...byItem.values()];
-}
-
-function columnsFor(doc) {
-  const stored = getSettings().sepidar_columns_v2?.[doc];
-  const defaults = SEPIDAR_COLUMN_DEFAULTS[doc];
-  const known = new Set(defaults.map((c) => c.key));
-  const cols = (Array.isArray(stored) ? stored : defaults).filter((c) => c.enabled && known.has(c.key));
-  return cols.length ? cols : defaults;
-}
-
-/** "1405/07/18" in the format Sepidar's importer accepts (switchable in settings while we find which one it wants). */
-export function formatSepidarDate(date, mode = 'with_time') {
-  switch (mode) {
-    case 'digits': return date.replace(/\//g, '');          // 14050718
-    case 'dash': return date.replace(/\//g, '-');            // 1405-07-18
-    case 'with_time': return `${date} 12:00:00 ق.ظ`;          // what Sepidar's own export prints
-    case 'slash': return date;                               // 1405/07/18
-    default: return `${date} 12:00:00 ق.ظ`;                  // what Sepidar's own export prints
-  }
-}
-
-/** Sepidar stores Arabic letters; the app types Persian ones. Convert text values so they match its data. */
-const arabic = (t) => String(t ?? '').replace(/ی/g, 'ي').replace(/ک/g, 'ك');
-
-/**
- * One row per item; the document header is repeated on every row (that is how Sepidar's template export/import
- * works: rows with the same number + warehouse are one document). Cell types follow Sepidar's own file: text,
- * except the quantity and the zero totals, which are numbers.
- */
-export function sepidarTable(info, rows, { docNo, date }) {
-  const s = getSettings();
-  const cols = columnsFor(info.doc);
-  const wh = s.sepidar_warehouses.find((w) => w.code === info.warehouse);
-  const dest = s.sepidar_warehouses.find((w) => w.code === info.dest);
-  const g = SEPIDAR_GROUPS[info.base];
-  const known = SEPIDAR_KNOWN_PARTIES[info.party] ?? {};
-  const isPurchase = info.base === 'purchase';
-  // "صادر کننده" is the Sepidar user: the name column is display-only and "(2)" is the user's numeric id (the
-  // importer parses it as an integer), so both stay blank unless an id is configured.
-  const issuerId = /^\d+$/.test(String(s.sepidar_issuer_id ?? '')) ? String(s.sepidar_issuer_id) : '';
-  const acct = s.sepidar_accounts?.[info.base];
-  const lineAccount = acct ?? g.line_account ?? '';
-  // The "عنوان …" columns are display-only foreign keys: Sepidar's export prints a name there, but its importer
-  // parses them as numbers ("Input string was not in a correct format"). Leave them blank — the code columns
-  // identify warehouse / party / account / item — unless titles are switched on in settings.
-  const titles = !!s.sepidar_titles;
-  const header = {
-    item_kind: info.doc === 'receipt' ? 'InventoryReceiptItem' : 'InventoryDeliveryItem',
-    issuer: '',
-    issuer2: issuerId,
-    number: String(docNo),
-    // Sepidar's EXPORT prints "1405/07/18 12:00:00 ق.ظ", but its importer splits the date on "/" and parses every
-    // part as an integer, so the time suffix makes it fail ("Input string was not in a correct format").
-    date: formatSepidarDate(date, s.sepidar_date_format),
-    warehouse: info.warehouse,
-    warehouse_title: titles ? arabic(wh?.title ?? '') : '',
-    account: info.doc === 'receipt' ? (acct ?? g.account ?? '') : '',
-    party: info.party,
-    party_id: known.id ?? '',
-    party_title: info.party ? (known.id ?? '') : '', // numeric id (or blank), never text
-    src_wh: '',
-    src_wh_title: '',
-    transfer_no: '',
-    proforma_no: '',
-    type: g.type_code,
-    acct_doc_no: '',
-    acct_doc_date: '',
-    net: 0,
-    total: 0,
-    by_invoice: 'False',
-    carrier: isPurchase ? (known.id ?? '') : '',
-    carrier_code: isPurchase ? info.party : '',
-    notes: '',
-    dest: info.dest,
-    dest_title: titles ? arabic(dest?.title ?? '') : '',
-  };
-  const body = rows.map((r, idx) => {
-    const line = {
-      row_no: String(idx + 1),
-      base: '',
-      item_code: String(r.item_code),
-      item_title: titles ? arabic(r.item_title) : '',
-      qty: r.qty,
-      price: '',
-      line_total: '',
-      amount: '',
-      line_account: lineAccount,
-      line_account_title: titles && lineAccount ? arabic(g.line_account_title ?? '') : '',
-      line_notes: '',
-    };
-    return cols.map((c) => (c.key in header ? header[c.key] : line[c.key]) ?? '');
-  });
-  return [cols.map((c) => c.header), ...applyLayout(body, cols, s.sepidar_layout || 'flat', docNo)];
-}
-
-/**
- * How a multi-item document is laid out in the file. Sepidar's importer creates one document per row, so which
- * layout it accepts as ONE document is found by testing (switchable in settings):
- *  flat              header repeated on every item row (what its own export looks like)
- *  first_row_only    header on the first item row, blank on the following item rows
- *  header_row_blank  a header-only row, then item rows with blank header fields
- *  header_row_repeat a header-only row, then item rows that repeat the header
- *  per_row           one document per item row (numbers docNo, docNo+1, ...)
- */
-const ITEM_KEYS = new Set(['item_kind', 'row_no', 'base', 'item_code', 'item_title', 'qty', 'price', 'line_total', 'amount',
-  'line_account', 'line_account_title', 'line_notes']);
-
-function applyLayout(rows, cols, layout, docNo) {
-  const isItem = cols.map((c) => ITEM_KEYS.has(c.key));
-  const blankHeader = (r) => r.map((v, i) => (isItem[i] ? v : ''));
-  const headerOnly = (r) => r.map((v, i) => (isItem[i] ? '' : v));
-  const numIdx = cols.findIndex((c) => c.key === 'number');
-  switch (layout) {
-    case 'first_row_only':
-      return rows.map((r, i) => (i === 0 ? r : blankHeader(r)));
-    case 'header_row_blank':
-      return rows.length ? [headerOnly(rows[0]), ...rows.map(blankHeader)] : rows;
-    case 'header_row_repeat':
-      return rows.length ? [headerOnly(rows[0]), ...rows] : rows;
-    case 'per_row':
-      return numIdx < 0 ? rows : rows.map((r, i) => r.map((v, j) => (j === numIdx ? String(docNo + i) : v)));
-    default:
-      return rows;
-  }
-}
-
-function checkHeader({ doc_no, date }) {
-  const docNo = Number(latinDigits(doc_no));
-  if (!Number.isInteger(docNo) || docNo < 1 || docNo > 99999999) throw new HttpError(400, 'شماره سند را (به‌صورت عدد) وارد کنید.');
-  const j = parseJalali(String(date ?? ''));
-  if (!j) throw new HttpError(400, 'تاریخ سند نامعتبر است (مثال: 1405/07/18).');
-  return { docNo, date: `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}` };
-}
-
-/** Creates a batch for one group (marking its documents as exported) and returns the file buffer. */
-export async function createSepidarExport(user, { from, to, format, group, doc_no, date, party }) {
-  const info = groupInfo(group, party);
+/** One barcode file for all not-yet-exported approved documents of a Sepidar document type (marks them as exported). */
+export function createSepidarExport(user, { from, to, group }) {
+  const info = sepidarGroupInfo(group);
   if (!info) throw new HttpError(400, 'نوع سند سپیدار نامعتبر است.');
-  const { docNo, date: docDate } = checkHeader({ doc_no, date });
-  const batch = tx(() => {
+  return tx(() => {
     const docs = sepidarCandidates({ from, to, includeExported: false, group });
     if (!docs.length) throw new HttpError(404, 'سند جدیدی برای این بخش وجود ندارد.');
     const rows = sepidarRows(docs.map((d) => d.id));
-    const id = Number(db.prepare('INSERT INTO sepidar_batches(created_at,created_by,doc_count,line_count,from_at,to_at,group_key,doc_no,doc_date,party) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group, docNo, docDate, info.party).lastInsertRowid);
+    const id = Number(db.prepare('INSERT INTO sepidar_batches(created_at,created_by,doc_count,line_count,from_at,to_at,group_key) VALUES(?,?,?,?,?,?,?)')
+      .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group).lastInsertRowid);
     const mark = db.prepare('UPDATE documents SET sepidar_batch_id = ? WHERE id = ?');
     for (const d of docs) mark.run(id, d.id);
-    const advance = getSettings().sepidar_layout === 'per_row' ? rows.length : 1; // per_row uses one number per item row
-    const next = { ...(getSettings().sepidar_next_no || {}), [`${info.doc}:${info.warehouse}`]: docNo + advance };
-    setSetting('sepidar_next_no', next);
-    audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, lines: rows.length, doc_no: docNo });
-    return { id, rows };
+    audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, items: rows.length });
+    const file = barcodeText(rows);
+    return { batchId: id, info, ...file };
   });
-  if (format === 'bundle') return { batchId: batch.id, buffer: await buildBundle(info, batch.rows, { docNo, date: docDate }) };
-  return { batchId: batch.id, buffer: await renderSepidar(sepidarTable(info, batch.rows, { docNo, date: docDate }), format, batch.rows, info) };
 }
 
-/** Re-download a past batch (does not change any state). */
-export async function regenerateSepidarBatch(id, format) {
+/** Re-download a past batch (changes no state). */
+export function regenerateSepidarBatch(id) {
   const b = db.prepare('SELECT * FROM sepidar_batches WHERE id = ?').get(id);
   if (!b) throw new HttpError(404, 'دسته پیدا نشد.');
-  const info = groupInfo(b.group_key, b.party ?? undefined);
-  if (!info || !b.doc_no) throw new HttpError(409, 'این دسته مربوط به نسخه قدیمی است و قابل بازسازی نیست.');
   const ids = db.prepare('SELECT id FROM documents WHERE sepidar_batch_id = ? ORDER BY decided_at, id').all(id).map((r) => r.id);
-  const rows = sepidarRows(ids);
-  if (format === 'bundle') return buildBundle(info, rows, { docNo: b.doc_no, date: b.doc_date });
-  return renderSepidar(sepidarTable(info, rows, { docNo: b.doc_no, date: b.doc_date }), format, rows, info);
+  return { info: sepidarGroupInfo(b.group_key), ...barcodeText(sepidarRows(ids)) };
 }
 
-/**
- * Plain comma-separated items file (code,quantity), for importing the items INTO an already created document.
- * ASCII only and no BOM: a BOM would become part of the first item code and break its parsing.
- *   mode 'none'  -> 31400,100
- *   mode 'latin' -> first line "Code,Quantity"
- *   mode 'row'   -> row number first: 1,31400,100
- *   mode 'repeat' -> the code once per unit (what a barcode scanner log looks like)
- *   mode 'tab' / 'space' / 'semicolon' -> other separators
- */
-export function itemsText(rows, mode = 'none', cap = 5000) {
-  const lines = [];
-  if (mode === 'latin') lines.push('Code,Quantity');
-  rows.forEach((r, i) => {
-    switch (mode) {
-      case 'repeat': // barcode-scanner style: one line per unit (capped, a scanner log is never huge)
-        for (let k = 0; k < Math.min(r.qty, cap); k++) lines.push(String(r.item_code));
-        break;
-      case 'tab': lines.push(`${r.item_code}\t${r.qty}`); break;
-      case 'space': lines.push(`${r.item_code} ${r.qty}`); break;
-      case 'semicolon': lines.push(`${r.item_code};${r.qty}`); break;
-      case 'row': lines.push(`${i + 1},${r.item_code},${r.qty}`); break;
-      default: lines.push(`${r.item_code},${r.qty}`);
-    }
-  });
-  return Buffer.from(lines.join('\r\n') + '\r\n', 'ascii');
-}
-
-/**
- * Items-only Excel (.xls) for the "add items from Excel" import INSIDE an already created document: no document header,
- * exactly the columns of the document's item grid (seen in the خروج / رسید form):
- *   خروج: ردیف، کد، عنوان، واحد اصلی، کد حساب معین، عنوان (حساب)، فی، مبلغ، توضیحات
- *   رسید: ردیف، مبنا، کد، عنوان، واحد اصلی، فی، کل، توضیحات
- * titles: 'native' = "قلم خروج انبار رديف" (what Sepidar's export writes), 'short' = the grid's own captions.
- * The item/account titles are display-only, so they stay blank unless titles are switched on in settings.
- */
-const ITEM_GRID = {
-  issue: {
-    keys: ['row_no', 'item_code', 'item_title', 'qty', 'line_account', 'line_account_title', 'price', 'amount', 'line_notes'],
-    native: ['قلم خروج انبار رديف', 'قلم خروج انبار كد', 'قلم خروج انبار عنوان', 'قلم خروج انبار واحد اصلي', 'قلم خروج انبار كد حساب معين',
-      'قلم خروج انبار عنوان1', 'قلم خروج انبار في', 'قلم خروج انبار مبلغ', 'قلم خروج انبار توضيحات'],
-    // the second "عنوان" is "عنوان1", as in Sepidar's own export: the importer builds a DataTable from the header
-    // row and rejects two columns with the same name (DuplicateNameException)
-    short: ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان1', 'في', 'مبلغ', 'توضيحات'],
-  },
-  receipt: {
-    keys: ['row_no', 'base', 'item_code', 'item_title', 'qty', 'price', 'line_total', 'line_notes'],
-    native: ['قلم رسيد انبار رديف', 'قلم رسيد انبار مبنا', 'قلم رسيد انبار كد', 'قلم رسيد انبار عنوان', 'قلم رسيد انبار واحد اصلي',
-      'قلم رسيد انبار في', 'قلم رسيد انبار كل', 'قلم رسيد انبار توضيحات'],
-    short: ['رديف', 'مبنا', 'كد', 'عنوان', 'واحد اصلي', 'في', 'كل', 'توضيحات'],
-  },
-};
-
-export function itemsTable(rows, info, opts = {}) {
-  const s = getSettings();
-  const g = SEPIDAR_GROUPS[info?.base] ?? {};
-  const grid = ITEM_GRID[g.doc === 'receipt' ? 'receipt' : 'issue'];
-  const titles = opts.titles ?? !!s.sepidar_titles;
-  const style = opts.style ?? (s.sepidar_items_titles || 'short');
-  const account = s.sepidar_accounts?.[info?.base] ?? g.line_account ?? '';
-  const body = rows.map((r, i) => {
-    const v = {
-      row_no: String(i + 1),
-      base: '',
-      item_code: String(r.item_code),
-      item_title: titles ? arabic(r.item_title) : '',
-      qty: r.qty,
-      line_account: account,
-      line_account_title: titles && account ? arabic(g.line_account_title ?? '') : '',
-      price: '',
-      amount: '',
-      line_total: '',
-      line_notes: '',
-    };
-    return grid.keys.map((k) => v[k]);
-  });
-  return [grid[style] ?? grid.native, ...body];
-}
-
-export async function renderSepidar(table, format, rows, info) {
-  if (format === 'itemsxls') return renderSepidar(itemsTable(rows ?? [], info), 'xls');
-  if (format === 'txt') return itemsText(rows ?? [], getSettings().sepidar_txt_header || 'none');
-  if (format === 'csv') {
-    const esc = (v) => {
-      const s = String(v ?? '');
-      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    return Buffer.from('\uFEFF' + table.map((r) => r.map(esc).join(',')).join('\r\n'), 'utf8'); // BOM so Excel reads Persian
-  }
-  if (format === 'xlsx') {
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Sheet1', { views: [{ rightToLeft: true }] });
-    table.forEach((r) => ws.addRow(r));
-    ws.getRow(1).font = { bold: true };
-    return wb.xlsx.writeBuffer();
-  }
-  // default: real Excel 97-2003 (.xls) — the only type Sepidar's file picker offers.
-  // Dates and codes are written as text (so "1405/07/18" and "0123" are never reinterpreted).
-  const ws = XLSX.utils.aoa_to_sheet(table.map((r) => r.map((v) => (typeof v === 'number' ? v : String(v)))));
-  ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, Math.min(String(h).length + 2, 40)) }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  return XLSX.write(wb, { bookType: 'biff8', type: 'buffer' });
-}
-
-export function sepidarGroupInfo(key, party) { return groupInfo(key, party); }
-
-// ---------- bundle: create the document (1 item) + add the rest by barcode ----------
-
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-function crc32(buf) {
-  let c = 0xffffffff;
-  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-/** Minimal ZIP writer (stored, UTF-8 names): enough to hand over a few small files as one download. */
-export function zipStore(files) {
-  const parts = [];
-  const central = [];
-  let offset = 0;
-  const now = new Date();
-  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
-  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
-  for (const f of files) {
-    const name = Buffer.from(f.name, 'utf8');
-    const data = Buffer.isBuffer(f.data) ? f.data : Buffer.from(f.data);
-    const crc = crc32(data);
-    const lh = Buffer.alloc(30);
-    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); lh.writeUInt16LE(0, 8);
-    lh.writeUInt16LE(dosTime, 10); lh.writeUInt16LE(dosDate, 12); lh.writeUInt32LE(crc, 14);
-    lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
-    parts.push(lh, name, data);
-    const ch = Buffer.alloc(46);
-    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8); ch.writeUInt16LE(0, 10);
-    ch.writeUInt16LE(dosTime, 12); ch.writeUInt16LE(dosDate, 14); ch.writeUInt32LE(crc, 16);
-    ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24); ch.writeUInt16LE(name.length, 28);
-    ch.writeUInt32LE(offset, 42);
-    central.push(ch, name);
-    offset += lh.length + name.length + data.length;
-  }
-  const cd = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10);
-  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...parts, cd, end]);
-}
-
-const MAX_BARCODE_LINES = 50000;
-
-/**
- * The working Sepidar flow (verified with your Sepidar): a document needs one item to exist, and the barcode input
- * adds ONE unit per line. So the bundle holds
- *   1) an .xls that creates the document with its first item (template import: one row = one document),
- *   2) a TXT of barcodes (item codes) for every remaining unit, to be read by the document's barcode input.
- */
-/**
- * Splits a document's items between the two files. Sepidar refuses a document without an item, so the creating .xls
- * must hold one line; by default that line is ONE unit of the first item ('one'), and everything else — including the
- * remaining units of that first item — goes into the barcode TXT. 'full' keeps the first item's whole quantity in the .xls.
- */
-export function planBundle(rows, mode = 'one') {
-  const [first, ...rest] = rows;
-  const firstQty = mode === 'full' ? first.qty : 1;
-  const remainder = first.qty - firstQty > 0 ? [{ ...first, qty: first.qty - firstQty }] : [];
-  return { firstRow: { ...first, qty: firstQty }, txtRows: [...remainder, ...rest], first };
-}
-
-export async function buildBundle(info, rows, { docNo, date }) {
-  if (!rows.length) throw new HttpError(404, 'قلمی برای این سند وجود ندارد.');
-  const mode = getSettings().sepidar_bundle_first || 'one';
-  const { firstRow, txtRows, first } = planBundle(rows, mode);
-  const rest = txtRows;
-  const xls = await renderSepidar(sepidarTable(info, [firstRow], { docNo, date }), 'xls');
-  const units = rest.reduce((n, r) => n + r.qty, 0);
-  const capped = rest.some((r) => r.qty > MAX_BARCODE_LINES);
-  const name = (n) => `${n}-${info.kind}-${info.type}${info.dest ? `-${info.dest}` : ''}-شماره-${docNo}`;
-  const guide = [
-    `سند: ${info.kind} › ${info.type}${info.dest ? ` (انبار مقصد ${info.dest})` : ''}`,
-    `شماره‌ی سند سپیدار: ${docNo}    تاریخ: ${date}    انبار: ${info.warehouse}`,
-    '',
-    'مرحله ۱ — ساخت سند',
-    `  فهرست ${info.kind} › دریافت اطلاعات › الگوی دریافت، فایل «${name('1')}.xls» را وارد کنید.`,
-    `  این فایل فقط سند را می‌سازد (سپیدار سند بدون قلم نمی‌پذیرد): کد ${first.item_code} × ${firstRow.qty}${mode === 'full' ? '' : ' (یک واحد؛ باقی با بارکد)'}.`,
-    '',
-    rest.length ? 'مرحله ۲ — افزودن بقیه‌ی اقلام با بارکد' : 'مرحله ۲ — لازم نیست (سند فقط یک قلم دارد)',
-    ...(rest.length ? [
-      `  سند ${docNo} را باز کنید، از «بارکد» زیر جدول اقلام فایل «${name('2')}.txt» را بخوانید.`,
-      `  هر خط یک واحد از کالا است: ${rest.length} کالا، ${units} خط.`,
-      '  شرط: «بارکد کالا» هر قلم در سپیدار برابر کد کالا باشد.',
-      ...(capped ? [`  هشدار: برای کالایی که تعدادش بیش از ${MAX_BARCODE_LINES} است فقط ${MAX_BARCODE_LINES} خط نوشته شد.`] : []),
-    ] : []),
-    '',
-    'بعد از ثبت، موجودی هر قلم را با گزارش «برگه‌ی ثبت در سپیدار» مقایسه کنید.',
-  ].join('\r\n') + '\r\n';
-  const files = [
-    { name: `${name('1')}.xls`, data: xls },
-    { name: `0-راهنما-شماره-${docNo}.txt`, data: Buffer.from('﻿' + guide, 'utf8') },
-  ];
-  if (rest.length) files.splice(1, 0, { name: `${name('2')}.txt`, data: itemsText(rest, 'repeat', MAX_BARCODE_LINES) });
-  return zipStore(files);
+/** The barcode file of ONE document (any status that moved stock). */
+export function documentBarcodeFile(docId) {
+  const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(docId);
+  if (!d) throw new HttpError(404, 'سند پیدا نشد.');
+  if (d.status !== 'approved') throw new HttpError(409, 'فقط برای سندهای تاییدشده فایل ساخته می‌شود.');
+  return { doc: d, ...barcodeText(sepidarRows([docId])) };
 }

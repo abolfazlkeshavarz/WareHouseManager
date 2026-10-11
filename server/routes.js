@@ -5,7 +5,7 @@ import { db, audit, hashPassword, verifyPassword, getSettings, setSetting, QR_PR
 import {
   HttpError, login, logout, publicUser, requireAuth, requireAdmin, destroyUserSessions, currentToken,
 } from './auth.js';
-import { ROLES, REASONS, DIRECTIONS, STATUSES, SEPIDAR_COLUMN_DEFAULTS, SEPIDAR_GROUPS } from './constants.js';
+import { ROLES, REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS } from './constants.js';
 import {
   createDocument, approveDocument, rejectDocument, cancelDocument, adjustStock, getDocument, listDocuments, pendingCount,
 } from './services/documents.js';
@@ -13,7 +13,9 @@ import {
   listItems, getItem, lookupItem, createItem, updateItem, setItemActive, saveItemImage, importItems, itemTemplate, itemWithStats,
 } from './services/items.js';
 import { queryMovements } from './services/movements.js';
-import { buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, sepidarGroupInfo } from './services/exports.js';
+import {
+  buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile,
+} from './services/exports.js';
 import {
   parseJalali, jalaliDayStartISO, jalaliDayEndISO, jalaliDate, todayJalali,
 } from '../public/js/lib/jalali.js';
@@ -21,7 +23,6 @@ import {
 export const api = express.Router();
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const MIME = { xls: 'application/vnd.ms-excel', xlsx: XLSX_MIME, csv: 'text/csv; charset=utf-8', txt: 'text/plain; charset=us-ascii', itemsxls: 'application/vnd.ms-excel', bundle: 'application/zip' };
 
 /** Reads ?from=1405/07/01&to=1405/07/30 (Jalali, inclusive) into [fromISO, toISO). */
 function dateRange(q) {
@@ -55,7 +56,7 @@ api.get('/meta', requireAuth, (req, res) => {
   const s = getSettings();
   res.json({
     roles: ROLES, reasons: REASONS, directions: DIRECTIONS, statuses: STATUSES, qr_prefix: QR_PREFIX,
-    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, sepidar_enabled: !!s.sepidar_enabled, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in,
+    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in,
     today: todayJalali(),
   });
 });
@@ -295,7 +296,7 @@ api.post('/users/:id/reset-password', requireAdmin, (req, res) => {
 
 // ---------------- settings (admin) ----------------
 api.get('/settings', requireAdmin, (_req, res) => {
-  res.json({ settings: getSettings(), default_sepidar_columns: SEPIDAR_COLUMN_DEFAULTS, groups: SEPIDAR_GROUPS });
+  res.json({ settings: getSettings() });
 });
 
 api.put('/settings', requireAdmin, (req, res) => {
@@ -309,62 +310,7 @@ api.put('/settings', requireAdmin, (req, res) => {
   };
   const bool = (k) => { if (b[k] !== undefined) { setSetting(k, !!b[k]); changes[k] = !!b[k]; } };
   str('company_name', 100);
-  bool('approval_required_out'); bool('approval_required_in'); bool('sepidar_enabled');
-  if (b.sepidar_columns_v2 !== undefined) {
-    const out = {};
-    for (const doc of ['receipt', 'issue']) {
-      const known = new Set(SEPIDAR_COLUMN_DEFAULTS[doc].map((c) => c.key));
-      const seen = new Set();
-      const cols = Array.isArray(b.sepidar_columns_v2?.[doc]) ? b.sepidar_columns_v2[doc] : [];
-      out[doc] = cols.filter((c) => known.has(c?.key) && !seen.has(c.key) && seen.add(c.key))
-        .map((c) => ({ key: c.key, header: String(c.header ?? '').trim().slice(0, 100) || c.key, enabled: !!c.enabled }));
-      if (!out[doc].some((c) => c.enabled)) throw new HttpError(400, 'حداقل یک ستون باید فعال باشد.');
-    }
-    setSetting('sepidar_columns_v2', out); changes.sepidar_columns_v2 = out;
-  }
-  if (b.sepidar_party_codes !== undefined) {
-    const codes = {};
-    for (const k of Object.keys(SEPIDAR_GROUPS)) codes[k] = String(b.sepidar_party_codes?.[k] ?? '').trim().slice(0, 30);
-    setSetting('sepidar_party_codes', codes); changes.sepidar_party_codes = codes;
-  }
-  if (b.sepidar_accounts !== undefined) {
-    const acc = {};
-    for (const [k, g] of Object.entries(SEPIDAR_GROUPS)) {
-      acc[k] = String(b.sepidar_accounts?.[k] ?? '').trim().slice(0, 30);
-    }
-    setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
-  }
-  if (b.sepidar_items_titles !== undefined) {
-    const v = String(b.sepidar_items_titles);
-    if (!['native', 'short'].includes(v)) throw new HttpError(400, 'قالب عنوان ستون‌ها نامعتبر است.');
-    setSetting('sepidar_items_titles', v); changes.sepidar_items_titles = v;
-  }
-  if (b.sepidar_bundle_first !== undefined) {
-    const v = String(b.sepidar_bundle_first);
-    if (!['one', 'full'].includes(v)) throw new HttpError(400, 'مقدار نامعتبر است.');
-    setSetting('sepidar_bundle_first', v); changes.sepidar_bundle_first = v;
-  }
-  if (b.sepidar_txt_header !== undefined) {
-    const v = String(b.sepidar_txt_header);
-    if (!['none', 'latin', 'row', 'repeat', 'tab', 'space', 'semicolon'].includes(v)) throw new HttpError(400, 'قالب فایل متنی نامعتبر است.');
-    setSetting('sepidar_txt_header', v); changes.sepidar_txt_header = v;
-  }
-  if (b.sepidar_layout !== undefined) {
-    const v = String(b.sepidar_layout);
-    if (!['flat', 'first_row_only', 'header_row_blank', 'header_row_repeat', 'per_row'].includes(v)) throw new HttpError(400, 'چیدمان نامعتبر است.');
-    setSetting('sepidar_layout', v); changes.sepidar_layout = v;
-  }
-  if (b.sepidar_date_format !== undefined) {
-    const v = String(b.sepidar_date_format);
-    if (!['slash', 'digits', 'dash', 'with_time'].includes(v)) throw new HttpError(400, 'قالب تاریخ نامعتبر است.');
-    setSetting('sepidar_date_format', v); changes.sepidar_date_format = v;
-  }
-  if (b.sepidar_titles !== undefined) { setSetting('sepidar_titles', !!b.sepidar_titles); changes.sepidar_titles = !!b.sepidar_titles; }
-  if (b.sepidar_issuer_id !== undefined) {
-    const v = String(b.sepidar_issuer_id).trim();
-    if (v && !/^\d{1,9}$/.test(v)) throw new HttpError(400, 'شناسه‌ی کاربر باید عدد باشد.');
-    setSetting('sepidar_issuer_id', v); changes.sepidar_issuer_id = v;
-  }
+  bool('approval_required_out'); bool('approval_required_in');
   if (b.sepidar_warehouses !== undefined) {
     const list = (Array.isArray(b.sepidar_warehouses) ? b.sepidar_warehouses : [])
       .map((w) => ({ code: String(w?.code ?? '').trim().slice(0, 20), title: String(w?.title ?? '').trim().slice(0, 80) }))
@@ -399,28 +345,35 @@ api.get('/export/full', requireAdmin, wrap(async (req, res) => {
   attachment(res, `گزارش-کامل-انبار-${stamp()}.xlsx`, XLSX_MIME, buf);
 }));
 
-const sepidarOn = (_req, _res, next) => {
-  if (!getSettings().sepidar_enabled) return next(new HttpError(403, 'خروجی سپیدار هنوز فعال نشده است.'));
-  next();
-};
-
-api.get('/export/sepidar/preview', requireAdmin, sepidarOn, (req, res) => {
+api.get('/export/sepidar/preview', requireAdmin, (req, res) => {
   res.json(sepidarPreview(dateRange(req.query)));
 });
 
-api.post('/export/sepidar', requireAdmin, sepidarOn, wrap(async (req, res) => {
-  const range = dateRange(req.body ?? {});
-  const format = ['csv', 'xlsx', 'txt', 'itemsxls', 'bundle'].includes(req.body?.format) ? req.body.format : 'xls';
-  const { batchId, buffer } = await createSepidarExport(req.user, { from: range.from, to: range.to, format, group: req.body?.group, doc_no: req.body?.doc_no, date: req.body?.date, party: req.body?.party });
-  res.setHeader('X-Batch-Id', String(batchId));
-  res.setHeader('Access-Control-Expose-Headers', 'X-Batch-Id');
-  const g = sepidarGroupInfo(req.body.group);
-  const ext = format === 'itemsxls' ? 'xls' : format === 'bundle' ? 'zip' : format;
-  attachment(res, `${g.kind}-${g.type}${g.dest ? '-' + g.dest : ''}${format === 'itemsxls' ? '-اقلام' : ''}-${stamp()}.${ext}`, MIME[format], buffer);
-}));
+function barcodeAttachment(res, name, file) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('X-Lines', String(file.lines));
+  res.setHeader('Access-Control-Expose-Headers', 'X-Lines, X-Capped, X-Batch-Id');
+  if (file.capped) res.setHeader('X-Capped', '1');
+  res.setHeader('Content-Disposition', `attachment; filename="barcodes.txt"; filename*=UTF-8''${encodeURIComponent(name)}`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(file.buffer);
+}
 
-api.get('/export/sepidar/batches/:id', requireAdmin, sepidarOn, wrap(async (req, res) => {
-  const format = ['csv', 'xlsx', 'txt', 'itemsxls', 'bundle'].includes(req.query.format) ? req.query.format : 'xls';
-  const buf = await regenerateSepidarBatch(Number(req.params.id), format);
-  attachment(res, `سپیدار-دسته-${req.params.id}${format === 'itemsxls' ? '-اقلام' : ''}.${format === 'itemsxls' ? 'xls' : format === 'bundle' ? 'zip' : format}`, MIME[format], buf);
-}));
+// one barcode file for all not-yet-exported approved documents of a Sepidar document type
+api.post('/export/sepidar', requireAdmin, (req, res) => {
+  const range = dateRange(req.body ?? {});
+  const r = createSepidarExport(req.user, { from: range.from, to: range.to, group: req.body?.group });
+  res.setHeader('X-Batch-Id', String(r.batchId));
+  barcodeAttachment(res, `بارکد-${r.info.kind}-${r.info.type}${r.info.dest ? '-' + r.info.dest : ''}-${stamp()}.txt`, r);
+});
+
+api.get('/export/sepidar/batches/:id', requireAdmin, (req, res) => {
+  const r = regenerateSepidarBatch(Number(req.params.id));
+  barcodeAttachment(res, `بارکد-دسته-${req.params.id}.txt`, r);
+});
+
+// the barcode file of ONE document
+api.get('/documents/:id/barcodes.txt', requireAdmin, (req, res) => {
+  const r = documentBarcodeFile(Number(req.params.id));
+  barcodeAttachment(res, `بارکد-سند-${r.doc.doc_no}.txt`, r);
+});

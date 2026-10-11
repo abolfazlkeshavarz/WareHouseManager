@@ -158,81 +158,55 @@ export async function reportsView({ query }) {
         } catch (ex) { toast(ex.message, 'err'); } finally { e.target.disabled = false; }
       } }, icon('download'), 'دریافت خروجی کامل'));
 
-    const sep = h('div', { class: 'card' }, h('h2', null, 'خروجی سپیدار'), h('div', { class: 'loading' }, h('div', { class: 'spinner' })));
-    if (!store.meta.sepidar_enabled) {
-      exportBox.replaceChildren(full, h('div', { class: 'card' }, h('h2', null, 'خروجی سپیدار'),
-        h('p', { class: 'muted', style: { margin: 0 } }, 'این بخش هنوز فعال نشده است و بعداً تکمیل می‌شود. فعلاً از «خروجی کامل» استفاده کنید.')));
-      return;
-    }
+    const sep = h('div', { class: 'card' }, h('h2', null, 'فایل بارکد سپیدار'), h('div', { class: 'loading' }, h('div', { class: 'spinner' })));
     exportBox.replaceChildren(full, sep);
     try {
       readFilters();
       const pv = await api.get('/api/export/sepidar/preview' + qs({ from: validDatesQuiet(f.from), to: validDatesQuiet(f.to) }));
-      let format = 'bundle';
-      const t = todayJalali();
-      const groupRow = (g) => {
-        const noIn = h('input', { class: 'input code num', inputmode: 'numeric', placeholder: 'شماره سند', value: g.next_no || '', maxlength: 9 });
-        const dateIn = h('input', { class: 'input code', inputmode: 'numeric', value: fmtJ(t), maxlength: 10 });
-        const needsParty = g.base !== 'transfer';
-        const partyIn = h('input', { class: 'input code', inputmode: 'numeric', value: g.party || '', maxlength: 20, placeholder: g.doc === 'receipt' ? 'مثلاً 60031' : 'مثلاً 1001' });
-        return h('div', { class: 'card flat stack', style: { gap: '8px' } },
-        h('div', { class: 'row wrap' },
-          h('b', null, g.kind), g.type ? h('span', { class: 'chip primary' }, `نوع: ${g.type}`) : null),
+      const groupRow = (g) => h('div', { class: 'card flat stack', style: { gap: '8px' } },
+        h('div', { class: 'row wrap' }, h('b', null, g.kind), h('span', { class: 'chip primary' }, `نوع: ${g.type}`)),
         h('div', { class: 'small' }, `در سپیدار: ${g.hint}`),
         h('div', { class: 'muted small num' }, g.doc_count
-          ? `${fa(g.doc_count)} سند جدید • ${fa(g.item_count)} قلم کالا • جمع ${fa(g.total_qty)} عدد`
+          ? `${fa(g.doc_count)} سند جدید • ${fa(g.item_count)} قلم کالا • ${fa(g.total_qty)} خط بارکد`
           : 'سند جدیدی وجود ندارد'),
-        g.doc_count ? h('div', { class: 'form-grid two' },
-          field('شماره سند در سپیدار *', noIn, 'اولین شماره‌ی آزاد انبار در سپیدار؛ اگر شماره‌ی موجود را بدهید سند قبلی به‌روزرسانی می‌شود!'),
-          field('تاریخ سند', dateIn),
-          needsParty ? field(g.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', partyIn, g.doc === 'receipt' ? 'کد تامین‌کننده/طرف حساب در سپیدار' : 'برای «مصرف»: 1001 (تولید)') : null) : null,
-        g.doc_count ? field('نوع فایل', h('select', { class: 'input', onChange: (e) => { format = e.target.value; } },
-          h('option', { value: 'bundle' }, 'بسته‌ی کامل (ZIP): ۱) ساخت سند با قلم اول  ۲) بقیه‌ی اقلام با بارکد (پیشنهادی)'),
-          h('option', { value: 'xls' }, 'Excel (.xls) — سند کامل با سربرگ'),
-          h('option', { value: 'itemsxls' }, 'Excel (.xls) — فقط اقلام، برای افزودن به سند ساخته‌شده'),
-          h('option', { value: 'txt' }, 'TXT جداشده با کاما — فقط اقلام (کد، تعداد)')),
-          'بسته: سند را با قلم اول می‌سازد و بقیه را با بارکد اضافه می‌کند؛ «بارکد کالا» هر قلم در سپیدار باید برابر کد کالا باشد') : null,
         h('button', { class: 'btn block', disabled: g.doc_count === 0, onClick: async () => {
           readFilters();
           if (!validDates()) return;
-          if (!/^\d+$/.test(latinDigits(noIn.value).trim())) { toast('شماره سند سپیدار را وارد کنید.', 'err'); return; }
-          if (!parseJalali(dateIn.value)) { toast('تاریخ سند نامعتبر است.', 'err'); return; }
           const ok = await confirmDialog({
-            title: `فایل ${g.kind}${g.type ? ' - ' + g.type : ''}`,
-            message: `${fa(g.doc_count)} سند به‌عنوان «ارسال‌شده به سپیدار» علامت می‌خورد و دوباره در فایل بعدی نمی‌آید. ادامه می‌دهید؟`,
+            title: `فایل بارکد ${g.kind} - ${g.type}`,
+            message: `${fa(g.doc_count)} سند به‌عنوان «ارسال‌شده به سپیدار» علامت می‌خورد و در فایل بعدی نمی‌آید. ادامه می‌دهید؟`,
             confirmText: 'ایجاد و دانلود',
           });
           if (!ok) return;
           try {
-            const res = await api.blob('POST', '/api/export/sepidar', { from: f.from, to: f.to, format, group: g.key, doc_no: latinDigits(noIn.value).trim(), date: latinDigits(dateIn.value).trim(), party: needsParty ? latinDigits(partyIn.value).trim() : undefined });
-            downloadBlob(await res.blob(), filenameOf(res, `sepidar.${format}`));
-            toast('فایل آماده شد.', 'ok');
+            const res = await api.blob('POST', '/api/export/sepidar', { from: f.from, to: f.to, group: g.key });
+            downloadBlob(await res.blob(), filenameOf(res, 'barcodes.txt'));
+            toast(`فایل بارکد آماده شد (${fa(res.headers.get('X-Lines') || '')} خط).`, 'ok');
             drawExports();
           } catch (ex) { toast(ex.message, 'err'); }
-        } }, icon('download'), 'دریافت فایل'));
-      };
+        } }, icon('download'), 'دریافت فایل بارکد (TXT)'));
 
       const batches = pv.batches.length
         ? h('div', { class: 'stack', style: { marginTop: '12px' } }, h('div', { class: 'muted small' }, 'دانلود مجدد فایل‌های قبلی'),
           ...pv.batches.map((b) => h('div', { class: 'row', style: { gap: '8px' } },
             h('div', { class: 'grow small num' }, `دسته ${fa(b.id)} • ${fmtDateTime(b.created_at)} • ${fa(b.doc_count)} سند`),
-            ...['bundle', 'xls', 'itemsxls', 'txt'].map((ext) => h('button', { class: 'btn sm secondary', onClick: async () => {
+            h('button', { class: 'btn sm secondary', onClick: async () => {
               try {
-                const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}?format=${ext}`);
-                downloadBlob(await res.blob(), filenameOf(res, `sepidar-${b.id}.${ext === 'itemsxls' ? 'xls' : ext === 'bundle' ? 'zip' : ext}`));
+                const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}`);
+                downloadBlob(await res.blob(), filenameOf(res, `barcodes-${b.id}.txt`));
               } catch (ex) { toast(ex.message, 'err'); }
-            } }, ext === 'itemsxls' ? 'اقلام XLS' : ext === 'bundle' ? 'بسته ZIP' : ext.toUpperCase())))))
+            } }, 'TXT'))))
         : null;
 
       sep.replaceChildren(...[
-        h('h2', null, 'خروجی سپیدار'),
+        h('h2', null, 'فایل بارکد سپیدار'),
         h('p', { class: 'muted small', style: { margin: '0 0 10px' } },
-          'برای هر نوع سند سپیدار یک فایل ساخته می‌شود که سربرگ سند (نوع، شماره، تاریخ، انبار، طرف مقابل) و اقلام را با هم دارد. در سپیدار: فهرست رسید/خروج انبار › «دریافت اطلاعات» (الگوی دریافت). هر سند فقط یک‌بار صادر می‌شود.'),
+          'هر خط یک واحد از کالا است (کد کالا = بارکد). سند را در سپیدار بسازید، سپس از «بارکد» زیر جدول اقلام این فایل را بخوانید. برای هر سند جداگانه هم می‌توان از صفحه‌ی خود سند فایل گرفت. «بارکد کالا» در کارت کالای سپیدار باید برابر کد کالا باشد.'),
         ...pv.groups.map(groupRow),
         batches,
       ].filter(Boolean));
     } catch (e) {
-      sep.replaceChildren(h('h2', null, 'خروجی سپیدار'), h('div', { class: 'err-text' }, e.message));
+      sep.replaceChildren(h('h2', null, 'فایل بارکد سپیدار'), h('div', { class: 'err-text' }, e.message));
     }
   }
 

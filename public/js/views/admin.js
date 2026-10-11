@@ -115,72 +115,15 @@ export async function workersView() {
 
 // ---------------- settings ----------------
 export async function settingsView() {
-  const { settings: s, default_sepidar_columns: defaults, groups } = await api.get('/api/settings');
-  const cols = { receipt: [], issue: [] };
-  for (const doc of ['receipt', 'issue']) {
-    const stored = s.sepidar_columns_v2?.[doc] ?? defaults[doc];
-    cols[doc] = stored.map((c) => ({ ...c }));
-    for (const d of defaults[doc]) if (!cols[doc].some((c) => c.key === d.key)) cols[doc].push({ ...d, enabled: false });
-  }
+  const { settings: s } = await api.get('/api/settings');
 
   const approvalOut = h('input', { type: 'checkbox', checked: s.approval_required_out, style: { width: '22px', height: '22px' } });
   const approvalIn = h('input', { type: 'checkbox', checked: s.approval_required_in, style: { width: '22px', height: '22px' } });
   const company = h('input', { class: 'input', value: s.company_name, maxlength: 100 });
-  const sepOn = h('input', { type: 'checkbox', checked: !!s.sepidar_enabled, style: { width: '22px', height: '22px' } });
   const whText = h('textarea', { class: 'input code', rows: 4, style: { direction: 'ltr' } },
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
   const mainWh = h('select', { class: 'input' },
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
-  const dateFmt = h('select', { class: 'input' }, ...[['with_time', '1405/07/18 12:00:00 ق.ظ (پیش‌فرض، مثل خروجی خود سپیدار)'], ['slash', '1405/07/18'], ['digits', '14050718'], ['dash', '1405-07-18']]
-    .map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_date_format || 'with_time') }, l)));
-  const layout = h('select', { class: 'input' }, ...[
-    ['flat', 'سربرگ در هر ردیفِ قلم تکرار می‌شود (پیش‌فرض)'],
-    ['first_row_only', 'سربرگ فقط در ردیف قلم اول'],
-    ['header_row_blank', 'یک ردیف فقط سربرگ، سپس اقلام بدون سربرگ'],
-    ['header_row_repeat', 'یک ردیف فقط سربرگ، سپس اقلام با سربرگ تکراری'],
-    ['per_row', 'هر قلم یک سند جدا (شماره‌ی پشت‌سرهم)'],
-  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_layout || 'flat') }, l)));
-  const itemsStyle = h('select', { class: 'input' }, ...[
-    ['short', 'عنوان کوتاه مثل جدول سند: «رديف»، «كد»، «عنوان»، «واحد اصلي» … (پیش‌فرض)'],
-    ['native', 'عنوان کامل مثل خروجی سپیدار: «قلم خروج انبار رديف»، «قلم خروج انبار كد» …'],
-  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_items_titles || 'short') }, l)));
-  const bundleFirst = h('select', { class: 'input' }, ...[
-    ['one', 'فایل ساخت سند فقط یک واحد از قلم اول را دارد؛ بقیه‌ی همه چیز در TXT بارکد (پیش‌فرض)'],
-    ['full', 'فایل ساخت سند کل تعداد قلم اول را دارد'],
-  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_bundle_first || 'one') }, l)));
-  const txtMode = h('select', { class: 'input' }, ...[
-    ['none', 'بدون عنوان: 31400,100'],
-    ['latin', 'با عنوان انگلیسی در خط اول: Code,Quantity'],
-    ['row', 'با ردیف: 1,31400,100'],
-    ['repeat', 'مثل اسکنر بارکد: کد به تعداد هر واحد یک خط'],
-    ['tab', 'کد و تعداد با Tab'],
-    ['space', 'کد و تعداد با فاصله'],
-    ['semicolon', 'کد;تعداد'],
-  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_txt_header || 'none') }, l)));
-  const titles = h('input', { type: 'checkbox', checked: !!s.sepidar_titles, style: { width: '22px', height: '22px' } });
-  const issuer = h('input', { class: 'input code', inputmode: 'numeric', value: s.sepidar_issuer_id ?? '', maxlength: 9, placeholder: 'خالی' });
-  const accounts = {};
-  for (const [k, g] of Object.entries(groups)) {
-    accounts[k] = h('input', { class: 'input code', value: s.sepidar_accounts?.[k] || g.account || g.line_account || '', maxlength: 30, placeholder: '—' });
-  }
-  const party = {};
-  for (const [k, g] of Object.entries(groups)) {
-    party[k] = h('input', { class: 'input code', value: s.sepidar_party_codes?.[k] ?? g.party ?? '', maxlength: 30, placeholder: '—' });
-  }
-
-  const editors = {};
-  function columnsEditor(doc, title) {
-    const box = h('div', { class: 'stack' });
-    const draw = () => box.replaceChildren(...cols[doc].map((c, i) => h('div', { class: 'row', style: { gap: '6px' } },
-      h('input', { type: 'checkbox', checked: c.enabled, style: { width: '20px', height: '20px' }, onChange: (e) => { c.enabled = e.target.checked; } }),
-      h('div', { class: 'grow' }, h('input', { class: 'input', value: c.header, maxlength: 100, 'aria-label': 'عنوان ستون', onInput: (e) => { c.header = e.target.value; } })),
-      h('button', { class: 'btn sm icon secondary', disabled: i === 0, 'aria-label': 'بالا', onClick: () => { [cols[doc][i - 1], cols[doc][i]] = [cols[doc][i], cols[doc][i - 1]]; draw(); } }, '↑'),
-      h('button', { class: 'btn sm icon secondary', disabled: i === cols[doc].length - 1, 'aria-label': 'پایین', onClick: () => { [cols[doc][i + 1], cols[doc][i]] = [cols[doc][i], cols[doc][i + 1]]; draw(); } }, '↓'))));
-    draw();
-    editors[doc] = box;
-    const reset = h('button', { class: 'btn sm secondary', onClick: () => { cols[doc] = defaults[doc].map((c) => ({ ...c })); draw(); } }, 'بازگشت به پیش‌فرض');
-    return h('div', { class: 'stack' }, h('div', { class: 'row', style: { margin: '10px 0 0' } }, h('div', { class: 'section-title grow', style: { margin: 0 } }, title), reset), box);
-  }
 
   const err = h('div', { class: 'err-text' });
   const body = h('div', { class: 'stack' },
@@ -191,30 +134,9 @@ export async function settingsView() {
       h('div', { class: 'hint' }, 'اسنادی که خود مدیر ثبت می‌کند بدون نیاز به تایید دوم اعمال می‌شوند (و با نام او در تاریخچه می‌مانند).')),
     h('div', { class: 'card stack' }, h('h2', null, 'اطلاعات عمومی'), field('نام شرکت', company)),
     h('div', { class: 'card stack' },
-      h('h2', null, 'انبارهای سپیدار'),
-      field('فهرست انبارها (هر خط: کد، فاصله، عنوان)', whText, 'برای «انتقال بین انبار» و ضایعات (کد 1004) استفاده می‌شود.'),
+      h('h2', null, 'انبارها'),
+      field('فهرست انبارها (هر خط: کد، فاصله، عنوان)', whText, 'برای «انتقال بین انبار» و ضایعات (کد 1004) و فایل بارکد سپیدار استفاده می‌شود.'),
       field('انبار این سامانه (مبدأ ورود و خروج)', mainWh, 'پس از تغییر فهرست، ذخیره کنید و صفحه را دوباره باز کنید.')),
-    h('div', { class: 'card stack' },
-      h('h2', null, 'خروجی سپیدار'),
-      h('label', { class: 'row', style: { gap: '12px' } }, sepOn, h('span', null, 'فعال‌سازی خروجی سپیدار (آزمایشی — هنوز تکمیل نشده)')),
-      h('div', { class: 'hint' }, 'تا زمانی که قالب واقعی ورود اطلاعات سپیدار مشخص نشده، این گزینه را خاموش بگذارید. «خروجی کامل» همیشه در دسترس است.')),
-    h('div', { class: 'card stack', id: 'sepidar-party' },
-      h('h2', null, 'فایل دریافت سپیدار — مقادیر پیش‌فرض'),
-      h('div', { class: 'form-grid two' },
-        ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
-        h('label', { class: 'row', style: { gap: '12px' } }, titles, h('span', null, 'پر کردن ستون‌های «عنوان» (انبار، قلم، حساب…) — معمولاً باید خاموش باشد')),
-        field('عنوان ستون‌های فایل اقلام (Excel)', itemsStyle, 'ستون‌ها همان ستون‌های جدول اقلام سند هستند'),
-        field('بسته‌ی کامل: محتوای فایل ساخت سند', bundleFirst, 'سپیدار سند بدون قلم نمی‌پذیرد، پس حداقل یک خط لازم است'),
-        field('قالب فایل TXT اقلام', txtMode, 'فایل فقط شامل کد کالا و تعداد است (بدون BOM و فقط حروف لاتین/عدد)'),
-        field('چیدمان اقلام در فایل', layout, 'سپیدار هر ردیف را یک سند می‌گیرد؛ اگر اقلام یک سند را یکی نکرد، چیدمان دیگر را امتحان کنید'),
-        field('قالب تاریخ در فایل', dateFmt, 'اگر سپیدار روی ستون تاریخ خطا داد، قالب دیگر را امتحان کنید'),
-        field('شناسه‌ی عددی «صادر کننده (2)»', issuer, 'اگر خالی بماند سپیدار کاربر وارد شده را می‌گذارد؛ مقدار متنی (نام) باعث خطای «داده‌ی وارد شده صحیح نمی‌باشد» می‌شود'),
-        ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].kind} › ${groups[k].type}`, el)))),
-    h('div', { class: 'card stack', id: 'sepidar-cols' },
-      h('h2', null, 'ستون‌های فایل دریافت سپیدار'),
-      h('div', { class: 'hint' }, 'سپیدار ردیف اول فایل را به‌عنوان عنوان ستون می‌خواند. عنوان‌ها باید با نام ستون‌های «الگوی دریافت رسید انبار / خروج انبار» (با گزینه‌ی «نام کامل») یکی باشند. اگر سپیدار ستونی را نشناخت، عنوان آن را اینجا اصلاح کنید.'),
-      columnsEditor('receipt', 'رسید انبار'),
-      columnsEditor('issue', 'خروج انبار')),
     err,
     h('button', { class: 'btn block', onClick: async () => {
       err.textContent = '';
@@ -222,17 +144,6 @@ export async function settingsView() {
         await api.put('/api/settings', {
           approval_required_out: approvalOut.checked, approval_required_in: approvalIn.checked,
           company_name: company.value,
-          sepidar_enabled: sepOn.checked,
-          sepidar_columns_v2: cols,
-          sepidar_party_codes: Object.fromEntries(Object.entries(party).map(([k, el]) => [k, el.value])),
-          sepidar_issuer_id: issuer.value,
-          sepidar_titles: titles.checked,
-          sepidar_date_format: dateFmt.value,
-          sepidar_layout: layout.value,
-          sepidar_txt_header: txtMode.value,
-          sepidar_bundle_first: bundleFirst.value,
-          sepidar_items_titles: itemsStyle.value,
-          sepidar_accounts: Object.fromEntries(Object.entries(accounts).map(([k, el]) => [k, el.value])),
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);
             return i < 0 ? { code: l, title: l } : { code: l.slice(0, i), title: l.slice(i + 1).trim() };
@@ -243,9 +154,6 @@ export async function settingsView() {
         toast('تنظیمات ذخیره شد.', 'ok');
       } catch (e) { err.textContent = e.message; }
     } }, 'ذخیره تنظیمات'));
-  const syncSepidar = () => body.querySelectorAll('#sepidar-party, #sepidar-cols').forEach((el) => { el.hidden = !sepOn.checked; });
-  sepOn.addEventListener('change', syncSepidar);
-  syncSepidar();
   return { title: 'تنظیمات', back: '/more', body };
 }
 

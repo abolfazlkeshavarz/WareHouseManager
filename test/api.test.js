@@ -175,131 +175,39 @@ test('full flow: opening stock → storekeeper request → approve → history �
   assert.throws(() => db.prepare('DELETE FROM documents').run());
   assert.throws(() => db.prepare("UPDATE audit_log SET action = 'x'").run());
 
-  // Sepidar export is switched off until enabled in settings
-  assert.equal((await admin.req('GET', '/api/export/sepidar/preview')).status, 403);
-  assert.equal((await admin.req('PUT', '/api/settings', { sepidar_enabled: true })).status, 200);
-
-  // Sepidar export: one real .xls per Sepidar document group; only approved docs; marked as exported afterwards
+  // ---- Sepidar: barcode files — one item code per unit (the barcode input adds one unit per line) ----
   const pre = await admin.req('GET', '/api/export/sepidar/preview');
   const grp = Object.fromEntries(pre.json.groups.map((g) => [g.key, g]));
-  assert.equal(grp.consumption.doc_count, 1);      // the approved to_worker document
+  assert.equal(grp.consumption.doc_count, 1);     // the approved to_worker document
   assert.equal(grp.consumption.item_count, 2);
+  assert.equal(grp.consumption.total_qty, 40);    // 30 + 10 units = 40 barcode lines
   assert.equal(grp.consumption.type, 'مصرف');
-  assert.equal(grp.production.doc_count, 1); // return_from_worker
+  assert.equal(grp.production.doc_count, 1);      // return_from_worker
   assert.equal(grp.purchase.doc_count, 0);
-  assert.equal((await keeper.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 41, date: '1405/07/18' })).status, 403);
-  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'purchase', doc_no: 41, date: '1405/07/18' })).status, 404);
-  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'nope', doc_no: 41, date: '1405/07/18' })).status, 400);
-  const exp = await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 41, date: '1405/07/18' }, { raw: true });
+  assert.equal((await keeper.req('POST', '/api/export/sepidar', { group: 'consumption' })).status, 403);
+  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'purchase' })).status, 404);
+  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'nope' })).status, 400);
+
+  // one document's own file (admin only, approved only)
+  const docFile = await admin.req('GET', `/api/documents/${out.json.document.id}/barcodes.txt`, null, { raw: true });
+  assert.equal(docFile.status, 200);
+  const expected = '30700\r\n'.repeat(30) + '30801\r\n'.repeat(10);
+  assert.equal(await docFile.text(), expected);
+  assert.equal(docFile.headers.get('x-lines'), '40');
+  assert.equal((await keeper.req('GET', `/api/documents/${out.json.document.id}/barcodes.txt`)).status, 403);
+  assert.equal((await admin.req('GET', `/api/documents/${out2.json.document.id}/barcodes.txt`)).status, 409); // rejected
+
+  // the grouped file marks its documents as exported
+  const exp = await admin.req('POST', '/api/export/sepidar', { group: 'consumption' }, { raw: true });
   assert.equal(exp.status, 200);
-  const xlsBuf = Buffer.from(await exp.arrayBuffer());
-  if (process.env.SAVE_SAMPLE) fs.writeFileSync(process.env.SAVE_SAMPLE, xlsBuf);
-  assert.equal(xlsBuf.subarray(0, 4).toString('hex'), 'd0cf11e0'); // genuine OLE2/BIFF .xls, not XML or zip
-  const XLSX = (await import('xlsx')).default;
-  const sheet = XLSX.read(xlsBuf, { type: 'buffer' });
-  const aoa = XLSX.utils.sheet_to_json(sheet.Sheets[sheet.SheetNames[0]], { header: 1 });
-  const { SEPIDAR_COLUMN_DEFAULTS } = await import('../server/constants.js');
-  const enabled = SEPIDAR_COLUMN_DEFAULTS.issue.filter((c) => c.enabled);
-  const colKeys = enabled.map((c) => c.key);
-  // lean file: only real data columns (Sepidar rejects files with more columns than the template selects)
-  assert.deepEqual(colKeys, ['item_kind', 'number', 'date', 'warehouse', 'party', 'dest', 'type', 'row_no', 'item_code', 'qty', 'line_account']);
-  assert.deepEqual(aoa[0], enabled.map((c) => c.header));
-  assert.equal(aoa.length, 3); // header + 2 items
-  const at = (r, k) => aoa[r][colKeys.indexOf(k)];
-  // the document header is repeated on every row; everything is text except the quantity
-  assert.equal(at(1, 'item_kind'), 'InventoryDeliveryItem'); // the template's first field (positional import)
-  assert.equal(at(1, 'number'), '41');
-  assert.equal(at(1, 'date'), '1405/07/18 12:00:00 ق.ظ'); // same text Sepidar's own export writes
-  assert.equal(at(1, 'warehouse'), '1001');
-  assert.equal(at(1, 'party'), '1001');
-  assert.equal(at(1, 'dest'), '');
-  assert.equal(at(1, 'type'), '2'); // مصرف
-  assert.equal(at(1, 'row_no'), '1');
-  assert.equal(at(2, 'row_no'), '2');
-  assert.equal(at(1, 'line_account'), '111601');
-  assert.equal(at(1, 'item_code'), '30700');
-  assert.equal(at(1, 'qty'), 30);
-  assert.equal(at(2, 'item_code'), '30801');
-  assert.equal(at(2, 'qty'), 10);
-  // layouts: same items, different arrangement of the header
-  {
-    const { sepidarTable, sepidarGroupInfo } = await import('../server/services/exports.js');
-    const { setSetting } = await import('../server/db.js');
-    const layoutRows = [{ item_code: 'A', item_title: 'a', qty: 1 }, { item_code: 'B', item_title: 'b', qty: 2 }];
-    const layoutInfo = sepidarGroupInfo('consumption');
-    const idx = (k) => SEPIDAR_COLUMN_DEFAULTS.issue.filter((c) => c.enabled).findIndex((c) => c.key === k);
-    for (const [layout, expectRows, firstNumber, lastNumber] of [
-      ['flat', 2, '7', '7'], ['first_row_only', 2, '7', ''], ['header_row_blank', 3, '7', ''],
-      ['header_row_repeat', 3, '7', '7'], ['per_row', 2, '7', '8']]) {
-      setSetting('sepidar_layout', layout);
-      const t = sepidarTable(layoutInfo, layoutRows, { docNo: 7, date: '1405/07/18' });
-      assert.equal(t.length - 1, expectRows, layout);
-      assert.equal(t[1][idx('number')], firstNumber, layout + ' first');
-      assert.equal(t[t.length - 1][idx('number')], lastNumber, layout + ' last');
-      assert.equal(t[t.length - 1][idx('item_code')], 'B', layout + ' items kept');
-    }
-    setSetting('sepidar_layout', 'flat');
-  }
-
-  // bundle: ZIP with the document-creating .xls + the barcode TXT (one line per unit)
-  {
-    const { zipStore, buildBundle, sepidarGroupInfo: gi, itemsText } = await import('../server/services/exports.js');
-    const z = zipStore([{ name: 'a.txt', data: 'hello' }, { name: 'ب.txt', data: 'x' }]);
-    assert.equal(z.subarray(0, 4).toString('hex'), '504b0304'); // local header
-    assert.equal(z.readUInt32LE(z.length - 22), 0x06054b50);     // end of central directory
-    assert.equal(z.readUInt16LE(z.length - 22 + 10), 2);          // two entries
-    assert.equal(itemsText([{ item_code: '9', qty: 3 }], 'repeat', 2).toString(), '9\r\n9\r\n'); // cap
-    const rows = [{ item_code: '355', item_title: 'a', qty: 10 }, { item_code: '31400', item_title: 'b', qty: 3 }];
-    const { planBundle } = await import('../server/services/exports.js');
-    const plan = planBundle(rows, 'one');
-    assert.equal(plan.firstRow.qty, 1);                       // the creating .xls holds ONE unit of the first item
-    assert.deepEqual(plan.txtRows.map((r) => [r.item_code, r.qty]), [['355', 9], ['31400', 3]]); // the rest goes to the TXT
-    assert.equal(planBundle(rows, 'full').firstRow.qty, 10);
-    assert.deepEqual(planBundle([{ item_code: '1', qty: 1 }], 'one').txtRows, []); // single unit: no TXT at all
-    const zip = await buildBundle(gi('consumption'), rows, { docNo: 990, date: '1405/07/19' });
-    const text = zip.toString('latin1');
-    assert.ok(text.includes('.xls') && text.includes('.txt'));
-    assert.ok(zip.includes(Buffer.from('355\r\n'.repeat(9) + '31400\r\n31400\r\n31400\r\n'))); // 9 + 3 units = 12 lines
-  }
-
-  // items-only Excel for the in-document import: the item grid's columns
-  {
-    const { itemsTable, sepidarGroupInfo: gi } = await import('../server/services/exports.js');
-    const r = [{ item_code: '31400', item_title: 'کاور موتور (بالا)', qty: 100 }];
-    const t = itemsTable(r, gi('consumption'), { style: 'native', titles: false });
-    assert.equal(t[0].length, 9);
-    assert.equal(t[0][1], 'قلم خروج انبار كد');
-    assert.deepEqual(t[1], ['1', '31400', '', 100, '111601', '', '', '', '']);
-    const full = itemsTable(r, gi('consumption'), { style: 'short', titles: true });
-    assert.deepEqual(full[0], ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان1', 'في', 'مبلغ', 'توضيحات']);
-    assert.equal(new Set(full[0]).size, full[0].length); // no duplicate column names (DuplicateNameException)
-    assert.equal(full[1][2], 'كاور موتور (بالا)');
-    assert.equal(full[1][5], 'كاردرجريان ساخت');
-    const rec = itemsTable(r, gi('production'), { style: 'native', titles: false });
-    assert.equal(rec[0].length, 8); // رسید grid: ردیف، مبنا، کد، عنوان، واحد اصلی، فی، کل، توضیحات
-  }
-
-  // items-only text file: code,quantity — ASCII, no BOM
-  {
-    const { itemsText } = await import('../server/services/exports.js');
-    const r = [{ item_code: '31400', qty: 100 }, { item_code: '32800', qty: 50 }];
-    assert.equal(itemsText(r).toString(), '31400,100\r\n32800,50\r\n');
-    assert.equal(itemsText(r, 'latin').toString(), 'Code,Quantity\r\n31400,100\r\n32800,50\r\n');
-    assert.equal(itemsText(r, 'row').toString(), '1,31400,100\r\n2,32800,50\r\n');
-    assert.equal(itemsText([{ item_code: '1', qty: 3 }], 'repeat').toString(), '1\r\n1\r\n1\r\n');
-    assert.equal(itemsText(r, 'tab').toString(), '31400\t100\r\n32800\t50\r\n');
-    assert.notEqual(itemsText(r)[0], 0xef); // no UTF-8 BOM
-  }
-
-  // missing number / bad date are rejected before anything is marked as exported
-  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', date: '1405/07/18' })).status, 400);
-  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 5, date: 'x' })).status, 400);
+  assert.equal(exp.headers.get('x-lines'), '40');
+  assert.equal(await exp.text(), expected);
   const pre2 = await admin.req('GET', '/api/export/sepidar/preview');
-  assert.equal(pre2.json.groups.find((g) => g.key === 'consumption').next_no, 42);
   assert.equal(pre2.json.groups.find((g) => g.key === 'consumption').doc_count, 0);
-  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 41, date: '1405/07/18' })).status, 404);
+  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption' })).status, 404);
   const again2 = await admin.req('GET', '/api/export/sepidar/batches/1', null, { raw: true });
   assert.equal(again2.status, 200);
+  assert.equal(await again2.text(), expected);
 
   // transfers & scrap: destination warehouse is required / defaulted, one Sepidar file per destination
   const tr0 = await admin.req('POST', '/api/documents', { direction: 'out', reason: 'transfer', lines: [{ item_id: a.id, qty: 1 }] });
@@ -315,17 +223,48 @@ test('full flow: opening stock → storekeeper request → approve → history �
   const pre3 = await admin.req('GET', '/api/export/sepidar/preview');
   const keys = pre3.json.groups.filter((g) => g.doc_count > 0).map((g) => g.key).sort();
   assert.deepEqual(keys, ['production', 'sale', 'transfer:1002', 'transfer:1004']);
-  const t1004 = pre3.json.groups.find((g) => g.key === 'transfer:1004');
-  assert.match(t1004.hint, /1004/);
-  assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'transfer:1004', doc_no: 41, date: '1405/07/18' }, { raw: true })).status, 200);
+  assert.match(pre3.json.groups.find((g) => g.key === 'transfer:1004').hint, /1004/);
+  const t1004 = await admin.req('POST', '/api/export/sepidar', { group: 'transfer:1004' }, { raw: true });
+  assert.equal(t1004.status, 200);
+  assert.equal(await t1004.text(), '30801\r\n'.repeat(3));
 
-  // Full export has all sheets
+  // ---- the complete export: who added / dropped which part, at what time, per day ----
   const full = await admin.req('GET', '/api/export/full', null, { raw: true });
   const wb2 = new ExcelJS.Workbook();
   await wb2.xlsx.load(Buffer.from(await full.arrayBuffer()));
-  assert.deepEqual(wb2.worksheets.map((s) => s.name), ['موجودی فعلی', 'تاریخچه حرکات', 'اسناد', 'گزارش ممیزی', 'اطلاعات گزارش']);
+  assert.deepEqual(wb2.worksheets.map((s) => s.name), [
+    'موجودی فعلی', 'ریز حرکات روزانه', 'خلاصه روزانه قطعات', 'خلاصه روزانه کاربران', 'اسناد', 'گزارش ممیزی', 'اطلاعات گزارش']);
   assert.equal(wb2.getWorksheet('موجودی فعلی').rowCount, 1 + 114);
-  assert.ok(wb2.getWorksheet('تاریخچه حرکات').rowCount >= 1 + 8);
+
+  const rowsOf = (ws) => {
+    const head = ws.getRow(1).values.slice(1);
+    const out = [];
+    ws.eachRow((r, n) => { if (n > 1) out.push(Object.fromEntries(head.map((h, i) => [h, r.values[i + 1]]))); });
+    return out;
+  };
+  const detail = rowsOf(wb2.getWorksheet('ریز حرکات روزانه'));
+  assert.ok(detail.length >= 8);
+  const firstOut = detail.find((r) => r['کد'] === '30700' && r['خروج'] === 30);
+  assert.ok(firstOut, 'the 30-piece hand-out is listed');
+  assert.match(firstOut['ساعت اعمال'], /^\d\d:\d\d$/);
+  assert.match(firstOut['ساعت ثبت'], /^\d\d:\d\d$/);
+  assert.equal(firstOut['ثبت‌کننده'], 'انباردار');
+  assert.equal(firstOut['تاییدکننده'], 'مختار');
+  assert.equal(firstOut['کارگر / طرف مقابل'], 'علی رضایی');
+  assert.equal(firstOut['موجودی قبل'], 100);
+  assert.equal(firstOut['موجودی بعد'], 70);
+  assert.ok(firstOut['روز هفته']);
+  // the same part's day summary: starts at 0, +105 in, -37 out, ends at 68
+  const sumDay = rowsOf(wb2.getWorksheet('خلاصه روزانه قطعات')).find((r) => r['کد'] === '30700');
+  assert.equal(sumDay['موجودی اول روز'], 0);
+  assert.equal(sumDay['جمع ورود'], 105);
+  assert.equal(sumDay['جمع خروج'], 37);
+  assert.equal(sumDay['موجودی آخر روز'], 68);
+  assert.equal(sumDay['تعداد حرکت'], 5);
+  const people = rowsOf(wb2.getWorksheet('خلاصه روزانه کاربران'));
+  const keeperRow = people.find((r) => r['کاربر'] === 'انباردار');
+  assert.ok(keeperRow && keeperRow['اسناد ثبت‌شده'] >= 3);
+  assert.ok(people.find((r) => r['کاربر'] === 'مختار' && r['تاییدهای او'] >= 1));
 
   // date filter parsing
   const today = jal.jalaliDate(new Date());
