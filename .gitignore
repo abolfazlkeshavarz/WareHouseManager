@@ -8,3 +8,6 @@ dist/
 
 # real stock reports exported from the accounting system (company data)
 samples/انبار-*
+
+# item-master import tests contain your real item data (titles, minimum stock) copied from Sepidar
+samples/sepidar/items-master/
