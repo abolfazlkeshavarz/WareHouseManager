@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS items (
   unit TEXT NOT NULL DEFAULT 'عدد',
   location TEXT NOT NULL DEFAULT '',
   min_stock INTEGER NOT NULL DEFAULT 0,
-  stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+  stock INTEGER NOT NULL DEFAULT 0,
   image TEXT,
   note TEXT NOT NULL DEFAULT '',
   row_no INTEGER,
@@ -132,6 +132,23 @@ try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN party TEXT'); } catch { /*
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_no INTEGER'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_date TEXT'); } catch { /* exists */ }
 try { db.exec("ALTER TABLE documents ADD COLUMN dest_warehouse TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
+// Stock may go below zero when the «check stock» setting is off, so older databases lose the CHECK (stock >= 0).
+{
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'").get();
+  if (row && /\s+CHECK \(stock >= 0\)/.test(row.sql)) {
+    try {
+      try { db.enableDefensive(false); } catch { /* older Node: not defensive by default */ }
+      const v = db.prepare('PRAGMA schema_version').get().schema_version;
+      db.exec('PRAGMA writable_schema = ON');
+      db.prepare("UPDATE sqlite_master SET sql = ? WHERE type = 'table' AND name = 'items'").run(row.sql.replace(/\s+CHECK \(stock >= 0\)/, ''));
+      db.exec(`PRAGMA schema_version = ${v + 1}`);
+      db.exec('PRAGMA writable_schema = OFF');
+      try { db.enableDefensive(true); } catch { /* ignore */ }
+    } catch (e) {
+      console.warn('Could not relax the stock >= 0 constraint:', e.message);
+    }
+  }
+}
 
 // Stock history must never be rewritten: block UPDATE/DELETE of audit rows at the DB level.
 db.exec(`

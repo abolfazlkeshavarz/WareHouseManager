@@ -60,6 +60,7 @@ export const DEFAULT_SETTINGS = {
   company_name: 'شرکت نیک نام طلاییه داران کاسپین',
   approval_required_out: true,
   approval_required_in: false,
+  check_stock: true, // refuse stock-out lines larger than the current stock
   sepidar_warehouses: DEFAULT_WAREHOUSES,
   sepidar_main_warehouse: '1001',
   sepidar_next_no: {}, // last used Sepidar document number + 1, per "receipt:1001" / "issue:1001"

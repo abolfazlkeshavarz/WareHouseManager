@@ -205,7 +205,7 @@ export async function scanView({ query }) {
   function lineView(l) {
     const it = store.itemsById.get(l.item_id);
     if (!it) return null;
-    const over = cart.direction === 'out' && l.qty > it.stock;
+    const over = store.meta.check_stock !== false && cart.direction === 'out' && l.qty > it.stock;
     const qtyInput = h('input', { class: 'input num', inputmode: 'numeric', value: String(l.qty), 'aria-label': 'تعداد',
       onFocus: (e) => e.target.select(),
       onChange: (e) => {

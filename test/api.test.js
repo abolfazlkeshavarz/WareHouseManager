@@ -346,6 +346,27 @@ test('items: create, duplicate code, edit, import template round trip', async ()
   assert.equal(imp.json.opening_docs, 1);
 });
 
+test('check_stock setting: off lets stock-out exceed the stock (negative), on refuses again', async () => {
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const it = (await admin.req('GET', '/api/items')).json.items.find((i) => i.code === '31200');
+  const out = (qty) => admin.req('POST', '/api/documents', { direction: 'out', reason: 'to_worker', worker_name: 'کارگر', lines: [{ item_id: it.id, qty }] });
+  assert.equal((await admin.req('GET', '/api/meta')).json.check_stock, true);
+  assert.equal((await out(5)).status, 409);
+
+  assert.equal((await admin.req('PUT', '/api/settings', { check_stock: false })).status, 200);
+  assert.equal((await admin.req('GET', '/api/meta')).json.check_stock, false);
+  const r = await out(5);
+  assert.equal(r.status, 201);
+  assert.equal(r.json.document.lines[0].stock_after, -5);
+  assert.equal((await admin.req('GET', '/api/items/' + it.id)).json.item.stock, -5);
+
+  assert.equal((await admin.req('PUT', '/api/settings', { check_stock: true })).status, 200);
+  assert.equal((await out(1)).status, 409);
+  // put the stock back so later tests are unaffected
+  assert.equal((await admin.req('POST', '/api/documents', { direction: 'in', reason: 'other_in', lines: [{ item_id: it.id, qty: 5 }] })).status, 201);
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();

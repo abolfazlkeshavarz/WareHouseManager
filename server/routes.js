@@ -56,7 +56,7 @@ api.get('/meta', requireAuth, (req, res) => {
   const s = getSettings();
   res.json({
     roles: ROLES, reasons: REASONS, directions: DIRECTIONS, statuses: STATUSES, qr_prefix: QR_PREFIX,
-    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in,
+    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in, check_stock: s.check_stock !== false,
     today: todayJalali(),
   });
 });
@@ -310,7 +310,7 @@ api.put('/settings', requireAdmin, (req, res) => {
   };
   const bool = (k) => { if (b[k] !== undefined) { setSetting(k, !!b[k]); changes[k] = !!b[k]; } };
   str('company_name', 100);
-  bool('approval_required_out'); bool('approval_required_in');
+  bool('approval_required_out'); bool('approval_required_in'); bool('check_stock');
   if (b.sepidar_warehouses !== undefined) {
     const list = (Array.isArray(b.sepidar_warehouses) ? b.sepidar_warehouses : [])
       .map((w) => ({ code: String(w?.code ?? '').trim().slice(0, 20), title: String(w?.title ?? '').trim().slice(0, 80) }))

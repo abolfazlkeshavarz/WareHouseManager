@@ -55,10 +55,11 @@ function applyDocument(docId, decider, decisionNote) {
   const setLine = db.prepare('UPDATE document_lines SET stock_before = ?, stock_after = ? WHERE id = ?');
   const t = nowISO();
   const short = [];
+  const checkStock = getSettings().check_stock !== false;
   for (const l of lines) {
     const it = getItem.get(l.item_id);
     const after = doc.direction === 'in' ? it.stock + l.qty : it.stock - l.qty;
-    if (after < 0) short.push({ item_id: it.id, code: it.code, name: itemLabel(it), stock: it.stock, qty: l.qty });
+    if (after < 0 && checkStock) short.push({ item_id: it.id, code: it.code, name: itemLabel(it), stock: it.stock, qty: l.qty });
     else {
       setStock.run(after, t, it.id);
       setLine.run(it.stock, after, l.id);
@@ -99,7 +100,7 @@ export function createDocument(user, body) {
       const dup = db.prepare('SELECT id FROM documents WHERE client_ref = ? AND created_by = ?').get(clientRef, user.id);
       if (dup) return { id: dup.id, duplicate: true };
     }
-    if (direction === 'out') {
+    if (direction === 'out' && getSettings().check_stock !== false) {
       const getStock = db.prepare('SELECT name, variant, stock FROM items WHERE id = ?');
       for (const l of lines) {
         const it = getStock.get(l.item_id);
