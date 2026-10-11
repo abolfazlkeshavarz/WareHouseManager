@@ -21,7 +21,7 @@ import {
 export const api = express.Router();
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const MIME = { xls: 'application/vnd.ms-excel', xlsx: XLSX_MIME, csv: 'text/csv; charset=utf-8' };
+const MIME = { xls: 'application/vnd.ms-excel', xlsx: XLSX_MIME, csv: 'text/csv; charset=utf-8', txt: 'text/plain; charset=us-ascii' };
 
 /** Reads ?from=1405/07/01&to=1405/07/30 (Jalali, inclusive) into [fromISO, toISO). */
 function dateRange(q) {
@@ -334,6 +334,11 @@ api.put('/settings', requireAdmin, (req, res) => {
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
+  if (b.sepidar_txt_header !== undefined) {
+    const v = String(b.sepidar_txt_header);
+    if (!['none', 'latin', 'row'].includes(v)) throw new HttpError(400, 'قالب فایل متنی نامعتبر است.');
+    setSetting('sepidar_txt_header', v); changes.sepidar_txt_header = v;
+  }
   if (b.sepidar_layout !== undefined) {
     const v = String(b.sepidar_layout);
     if (!['flat', 'first_row_only', 'header_row_blank', 'header_row_repeat', 'per_row'].includes(v)) throw new HttpError(400, 'چیدمان نامعتبر است.');
@@ -395,7 +400,7 @@ api.get('/export/sepidar/preview', requireAdmin, sepidarOn, (req, res) => {
 
 api.post('/export/sepidar', requireAdmin, sepidarOn, wrap(async (req, res) => {
   const range = dateRange(req.body ?? {});
-  const format = ['csv', 'xlsx'].includes(req.body?.format) ? req.body.format : 'xls';
+  const format = ['csv', 'xlsx', 'txt'].includes(req.body?.format) ? req.body.format : 'xls';
   const { batchId, buffer } = await createSepidarExport(req.user, { from: range.from, to: range.to, format, group: req.body?.group, doc_no: req.body?.doc_no, date: req.body?.date, party: req.body?.party });
   res.setHeader('X-Batch-Id', String(batchId));
   res.setHeader('Access-Control-Expose-Headers', 'X-Batch-Id');
@@ -404,7 +409,7 @@ api.post('/export/sepidar', requireAdmin, sepidarOn, wrap(async (req, res) => {
 }));
 
 api.get('/export/sepidar/batches/:id', requireAdmin, sepidarOn, wrap(async (req, res) => {
-  const format = ['csv', 'xlsx'].includes(req.query.format) ? req.query.format : 'xls';
+  const format = ['csv', 'xlsx', 'txt'].includes(req.query.format) ? req.query.format : 'xls';
   const buf = await regenerateSepidarBatch(Number(req.params.id), format);
   attachment(res, `سپیدار-دسته-${req.params.id}.${format}`, MIME[format], buf);
 }));

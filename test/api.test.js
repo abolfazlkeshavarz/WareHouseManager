@@ -241,6 +241,16 @@ test('full flow: opening stock → storekeeper request → approve → history �
     setSetting('sepidar_layout', 'flat');
   }
 
+  // items-only text file: code,quantity — ASCII, no BOM
+  {
+    const { itemsText } = await import('../server/services/exports.js');
+    const r = [{ item_code: '31400', qty: 100 }, { item_code: '32800', qty: 50 }];
+    assert.equal(itemsText(r).toString(), '31400,100\r\n32800,50\r\n');
+    assert.equal(itemsText(r, 'latin').toString(), 'Code,Quantity\r\n31400,100\r\n32800,50\r\n');
+    assert.equal(itemsText(r, 'row').toString(), '1,31400,100\r\n2,32800,50\r\n');
+    assert.notEqual(itemsText(r)[0], 0xef); // no UTF-8 BOM
+  }
+
   // missing number / bad date are rejected before anything is marked as exported
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', date: '1405/07/18' })).status, 400);
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 5, date: 'x' })).status, 400);

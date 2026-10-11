@@ -15,6 +15,7 @@ const out = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'sampl
 fs.mkdirSync(out, { recursive: true });
 fs.rmSync(path.join(out, 'date-tests'), { recursive: true, force: true });
 fs.rmSync(path.join(out, 'layout-tests'), { recursive: true, force: true });
+fs.rmSync(path.join(out, 'items-txt'), { recursive: true, force: true });
 for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
 
 const ROWS = [
@@ -69,4 +70,12 @@ for (const [name, layout, no] of layouts) {
   console.log('layout-tests', name, '->', table.length - 1, 'rows');
 }
 setSetting('sepidar_layout', 'flat');
+
+// Items-only comma-separated text files, for importing items INTO an existing document.
+const { itemsText } = await import('../server/services/exports.js');
+fs.mkdirSync(path.join(out, 'items-txt'), { recursive: true });
+for (const [name, mode] of [['T1-code-qty.txt', 'none'], ['T2-header-Code-Quantity.txt', 'latin'], ['T3-row-code-qty.txt', 'row']]) {
+  fs.writeFileSync(path.join(out, 'items-txt', name), itemsText(ROWS, mode));
+  console.log('items-txt', name);
+}
 try { fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true }); } catch { /* the DB file is still open on Windows; the OS temp cleaner removes it */ }

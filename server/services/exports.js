@@ -363,7 +363,7 @@ export async function createSepidarExport(user, { from, to, format, group, doc_n
     audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, lines: rows.length, doc_no: docNo });
     return { id, rows };
   });
-  return { batchId: batch.id, buffer: await renderSepidar(sepidarTable(info, batch.rows, { docNo, date: docDate }), format) };
+  return { batchId: batch.id, buffer: await renderSepidar(sepidarTable(info, batch.rows, { docNo, date: docDate }), format, batch.rows) };
 }
 
 /** Re-download a past batch (does not change any state). */
@@ -373,10 +373,26 @@ export async function regenerateSepidarBatch(id, format) {
   const info = groupInfo(b.group_key, b.party ?? undefined);
   if (!info || !b.doc_no) throw new HttpError(409, 'این دسته مربوط به نسخه قدیمی است و قابل بازسازی نیست.');
   const ids = db.prepare('SELECT id FROM documents WHERE sepidar_batch_id = ? ORDER BY decided_at, id').all(id).map((r) => r.id);
-  return renderSepidar(sepidarTable(info, sepidarRows(ids), { docNo: b.doc_no, date: b.doc_date }), format);
+  const rows = sepidarRows(ids);
+  return renderSepidar(sepidarTable(info, rows, { docNo: b.doc_no, date: b.doc_date }), format, rows);
 }
 
-export async function renderSepidar(table, format) {
+/**
+ * Plain comma-separated items file (code,quantity), for importing the items INTO an already created document.
+ * ASCII only and no BOM: a BOM would become part of the first item code and break its parsing.
+ *   mode 'none'  -> 31400,100
+ *   mode 'latin' -> first line "Code,Quantity"
+ *   mode 'row'   -> row number first: 1,31400,100
+ */
+export function itemsText(rows, mode = 'none') {
+  const lines = [];
+  if (mode === 'latin') lines.push('Code,Quantity');
+  rows.forEach((r, i) => lines.push(`${mode === 'row' ? `${i + 1},` : ''}${r.item_code},${r.qty}`));
+  return Buffer.from(lines.join('\r\n') + '\r\n', 'ascii');
+}
+
+export async function renderSepidar(table, format, rows) {
+  if (format === 'txt') return itemsText(rows ?? [], getSettings().sepidar_txt_header || 'none');
   if (format === 'csv') {
     const esc = (v) => {
       const s = String(v ?? '');

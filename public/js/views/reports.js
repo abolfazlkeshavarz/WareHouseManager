@@ -168,7 +168,7 @@ export async function reportsView({ query }) {
     try {
       readFilters();
       const pv = await api.get('/api/export/sepidar/preview' + qs({ from: validDatesQuiet(f.from), to: validDatesQuiet(f.to) }));
-      const format = 'xls';
+      let format = 'xls';
       const t = todayJalali();
       const groupRow = (g) => {
         const noIn = h('input', { class: 'input code num', inputmode: 'numeric', placeholder: 'شماره سند', value: g.next_no || '', maxlength: 9 });
@@ -186,6 +186,10 @@ export async function reportsView({ query }) {
           field('شماره سند در سپیدار *', noIn, 'اولین شماره‌ی آزاد انبار در سپیدار؛ اگر شماره‌ی موجود را بدهید سند قبلی به‌روزرسانی می‌شود!'),
           field('تاریخ سند', dateIn),
           needsParty ? field(g.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', partyIn, g.doc === 'receipt' ? 'کد تامین‌کننده/طرف حساب در سپیدار' : 'برای «مصرف»: 1001 (تولید)') : null) : null,
+        g.doc_count ? field('نوع فایل', h('select', { class: 'input', onChange: (e) => { format = e.target.value; } },
+          h('option', { value: 'xls' }, 'Excel (.xls) — سند کامل با سربرگ'),
+          h('option', { value: 'txt' }, 'TXT جداشده با کاما — فقط اقلام (کد، تعداد)')),
+          'برای وارد کردن اقلام داخل یک سند که قبلاً ساخته‌اید') : null,
         h('button', { class: 'btn block', disabled: g.doc_count === 0, onClick: async () => {
           readFilters();
           if (!validDates()) return;
@@ -203,19 +207,19 @@ export async function reportsView({ query }) {
             toast('فایل آماده شد.', 'ok');
             drawExports();
           } catch (ex) { toast(ex.message, 'err'); }
-        } }, icon('download'), 'دریافت فایل .xls'));
+        } }, icon('download'), 'دریافت فایل'));
       };
 
       const batches = pv.batches.length
         ? h('div', { class: 'stack', style: { marginTop: '12px' } }, h('div', { class: 'muted small' }, 'دانلود مجدد فایل‌های قبلی'),
           ...pv.batches.map((b) => h('div', { class: 'row', style: { gap: '8px' } },
             h('div', { class: 'grow small num' }, `دسته ${fa(b.id)} • ${fmtDateTime(b.created_at)} • ${fa(b.doc_count)} سند`),
-            h('button', { class: 'btn sm secondary', onClick: async () => {
+            ...['xls', 'txt'].map((ext) => h('button', { class: 'btn sm secondary', onClick: async () => {
               try {
-                const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}?format=xls`);
-                downloadBlob(await res.blob(), filenameOf(res, `sepidar-${b.id}.xls`));
+                const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}?format=${ext}`);
+                downloadBlob(await res.blob(), filenameOf(res, `sepidar-${b.id}.${ext}`));
               } catch (ex) { toast(ex.message, 'err'); }
-            } }, 'XLS'))))
+            } }, ext.toUpperCase())))))
         : null;
 
       sep.replaceChildren(...[
