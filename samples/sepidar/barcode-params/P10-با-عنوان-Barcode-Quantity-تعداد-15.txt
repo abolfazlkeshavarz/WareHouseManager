@@ -1,0 +1,2 @@
+Barcode,Quantity
+31400,15
