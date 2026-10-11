@@ -16,7 +16,11 @@ fs.mkdirSync(out, { recursive: true });
 fs.rmSync(path.join(out, 'date-tests'), { recursive: true, force: true });
 fs.rmSync(path.join(out, 'layout-tests'), { recursive: true, force: true });
 fs.rmSync(path.join(out, 'items-txt'), { recursive: true, force: true });
-for (const f of fs.readdirSync(out)) fs.unlinkSync(path.join(out, f));
+fs.rmSync(path.join(out, 'items-xls'), { recursive: true, force: true });
+for (const f of fs.readdirSync(out)) {
+  const p = path.join(out, f);
+  if (fs.statSync(p).isFile()) fs.unlinkSync(p); // keep hand-made test folders (key-test, own-export-test)
+}
 
 const ROWS = [
   { item_code: '31400', item_title: 'کاور موتور (بالا)', qty: 100 },
@@ -70,6 +74,25 @@ for (const [name, layout, no] of layouts) {
   console.log('layout-tests', name, '->', table.length - 1, 'rows');
 }
 setSetting('sepidar_layout', 'flat');
+
+// Items-only Excel files (.xls) for adding items to a document that already exists (no header).
+const { itemsTable } = await import('../server/services/exports.js');
+fs.mkdirSync(path.join(out, 'items-xls'), { recursive: true });
+{
+  const XLSX = (await import('xlsx')).default;
+  const write = (name, table) => {
+    const ws = XLSX.utils.aoa_to_sheet(table.map((r) => r.map((v) => (typeof v === 'number' ? v : String(v)))));
+    ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, String(h).length + 2) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+    fs.writeFileSync(path.join(out, 'items-xls', name), XLSX.write(wb, { bookType: 'biff8', type: 'buffer' }));
+    console.log('items-xls', name, table.length - 1, 'items');
+  };
+  const full = itemsTable(ROWS, sepidarGroupInfo('consumption'));
+  write('I1-اقلام-خروج-مصرف.xls', full);
+  write('I2-فقط-کد-و-مقدار.xls', full.map((r) => [r[1], r[3]]));
+  write('I3-ردیف-کد-مقدار.xls', full.map((r) => [r[0], r[1], r[3]]));
+}
 
 // Items-only comma-separated text files, for importing items INTO an existing document.
 const { itemsText } = await import('../server/services/exports.js');

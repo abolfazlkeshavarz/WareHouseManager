@@ -363,7 +363,7 @@ export async function createSepidarExport(user, { from, to, format, group, doc_n
     audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, lines: rows.length, doc_no: docNo });
     return { id, rows };
   });
-  return { batchId: batch.id, buffer: await renderSepidar(sepidarTable(info, batch.rows, { docNo, date: docDate }), format, batch.rows) };
+  return { batchId: batch.id, buffer: await renderSepidar(sepidarTable(info, batch.rows, { docNo, date: docDate }), format, batch.rows, info) };
 }
 
 /** Re-download a past batch (does not change any state). */
@@ -374,7 +374,7 @@ export async function regenerateSepidarBatch(id, format) {
   if (!info || !b.doc_no) throw new HttpError(409, 'این دسته مربوط به نسخه قدیمی است و قابل بازسازی نیست.');
   const ids = db.prepare('SELECT id FROM documents WHERE sepidar_batch_id = ? ORDER BY decided_at, id').all(id).map((r) => r.id);
   const rows = sepidarRows(ids);
-  return renderSepidar(sepidarTable(info, rows, { docNo: b.doc_no, date: b.doc_date }), format, rows);
+  return renderSepidar(sepidarTable(info, rows, { docNo: b.doc_no, date: b.doc_date }), format, rows, info);
 }
 
 /**
@@ -391,7 +391,20 @@ export function itemsText(rows, mode = 'none') {
   return Buffer.from(lines.join('\r\n') + '\r\n', 'ascii');
 }
 
-export async function renderSepidar(table, format, rows) {
+/**
+ * Items-only Excel (.xls) for the "add items from Excel" import INSIDE an already created document: no document header,
+ * just what the document's item grid holds. Arabic letters in the titles, text cells except the quantity.
+ */
+export function itemsTable(rows, info) {
+  const g = SEPIDAR_GROUPS[info?.base] ?? {};
+  const settings = getSettings();
+  const account = settings.sepidar_accounts?.[info?.base] ?? g.line_account ?? '';
+  const head = ['رديف', 'كد كالا', 'عنوان كالا', 'مقدار', 'كد حساب معين', 'توضيحات'];
+  return [head, ...rows.map((r, i) => [String(i + 1), String(r.item_code), arabic(r.item_title), r.qty, account, ''])];
+}
+
+export async function renderSepidar(table, format, rows, info) {
+  if (format === 'itemsxls') return renderSepidar(itemsTable(rows ?? [], info), 'xls');
   if (format === 'txt') return itemsText(rows ?? [], getSettings().sepidar_txt_header || 'none');
   if (format === 'csv') {
     const esc = (v) => {

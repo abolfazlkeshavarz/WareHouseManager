@@ -188,6 +188,7 @@ export async function reportsView({ query }) {
           needsParty ? field(g.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', partyIn, g.doc === 'receipt' ? 'کد تامین‌کننده/طرف حساب در سپیدار' : 'برای «مصرف»: 1001 (تولید)') : null) : null,
         g.doc_count ? field('نوع فایل', h('select', { class: 'input', onChange: (e) => { format = e.target.value; } },
           h('option', { value: 'xls' }, 'Excel (.xls) — سند کامل با سربرگ'),
+          h('option', { value: 'itemsxls' }, 'Excel (.xls) — فقط اقلام، برای افزودن به سند ساخته‌شده'),
           h('option', { value: 'txt' }, 'TXT جداشده با کاما — فقط اقلام (کد، تعداد)')),
           'برای وارد کردن اقلام داخل یک سند که قبلاً ساخته‌اید') : null,
         h('button', { class: 'btn block', disabled: g.doc_count === 0, onClick: async () => {
@@ -214,12 +215,12 @@ export async function reportsView({ query }) {
         ? h('div', { class: 'stack', style: { marginTop: '12px' } }, h('div', { class: 'muted small' }, 'دانلود مجدد فایل‌های قبلی'),
           ...pv.batches.map((b) => h('div', { class: 'row', style: { gap: '8px' } },
             h('div', { class: 'grow small num' }, `دسته ${fa(b.id)} • ${fmtDateTime(b.created_at)} • ${fa(b.doc_count)} سند`),
-            ...['xls', 'txt'].map((ext) => h('button', { class: 'btn sm secondary', onClick: async () => {
+            ...['xls', 'itemsxls', 'txt'].map((ext) => h('button', { class: 'btn sm secondary', onClick: async () => {
               try {
                 const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}?format=${ext}`);
-                downloadBlob(await res.blob(), filenameOf(res, `sepidar-${b.id}.${ext}`));
+                downloadBlob(await res.blob(), filenameOf(res, `sepidar-${b.id}.${ext === 'itemsxls' ? 'xls' : ext}`));
               } catch (ex) { toast(ex.message, 'err'); }
-            } }, ext.toUpperCase())))))
+            } }, ext === 'itemsxls' ? 'اقلام XLS' : ext.toUpperCase())))))
         : null;
 
       sep.replaceChildren(...[

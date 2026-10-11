@@ -241,6 +241,14 @@ test('full flow: opening stock → storekeeper request → approve → history �
     setSetting('sepidar_layout', 'flat');
   }
 
+  // items-only Excel for the in-document import
+  {
+    const { itemsTable } = await import('../server/services/exports.js');
+    const t = itemsTable([{ item_code: '31400', item_title: 'کاور موتور (بالا)', qty: 100 }], { base: 'consumption' });
+    assert.deepEqual(t[0], ['رديف', 'كد كالا', 'عنوان كالا', 'مقدار', 'كد حساب معين', 'توضيحات']);
+    assert.deepEqual(t[1], ['1', '31400', 'كاور موتور (بالا)', 100, '111601', '']);
+  }
+
   // items-only text file: code,quantity — ASCII, no BOM
   {
     const { itemsText } = await import('../server/services/exports.js');
