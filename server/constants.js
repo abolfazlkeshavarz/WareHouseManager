@@ -33,17 +33,21 @@ export const STATUSES = {
   cancelled: 'لغو شده',
 };
 
-// Sepidar document types. The app only keeps this classification: each approved document belongs to one Sepidar
-// document (رسید انبار / خروج انبار and its type) and yields a barcode file for it (one item code per unit).
-//  doc  receipt (رسید انبار) or issue (خروج انبار)
+// Sepidar document types. Each approved document belongs to one Sepidar document (رسید انبار / خروج انبار and its type)
+// and yields a barcode file for it (one item code per unit).
+//  doc          receipt (رسید انبار) or issue (خروج انبار)
+// Used only by the optional "bundle" (the creating .xls), values read from the template exports of the customer:
+//  type_code    value of the "نوع رسید" / "نوع" column
+//  party        default کد تحویل‌دهنده / تحویل‌گیرنده
+//  account      receipts: کد حساب معین of the document;  line_account: issues: کد حساب معین of the item line
 export const SEPIDAR_GROUPS = {
-  purchase: { doc: 'receipt', kind: 'رسید انبار', type: 'خرید (داخلی)' },
-  production: { doc: 'receipt', kind: 'رسید انبار', type: 'تولید' },
-  other_in: { doc: 'receipt', kind: 'رسید انبار', type: 'سایر' },
-  consumption: { doc: 'issue', kind: 'خروج انبار', type: 'مصرف' },
-  sale: { doc: 'issue', kind: 'خروج انبار', type: 'فروش' },
-  other_out: { doc: 'issue', kind: 'خروج انبار', type: 'سایر' },
-  transfer: { doc: 'issue', kind: 'خروج انبار', type: 'انتقال بین انبار' },
+  purchase: { doc: 'receipt', kind: 'رسید انبار', type: 'خرید (داخلی)', type_code: '1', party: '60031', account: '211001' },
+  production: { doc: 'receipt', kind: 'رسید انبار', type: 'تولید', type_code: '2', party: '1001', account: '111601' },
+  other_in: { doc: 'receipt', kind: 'رسید انبار', type: 'سایر', type_code: '3', party: '60029', account: '211001' },
+  consumption: { doc: 'issue', kind: 'خروج انبار', type: 'مصرف', type_code: '2', party: '1001', line_account: '111601' },
+  sale: { doc: 'issue', kind: 'خروج انبار', type: 'فروش', type_code: '1', party: '', line_account: '' },
+  other_out: { doc: 'issue', kind: 'خروج انبار', type: 'سایر', type_code: '3', party: '', line_account: '111304' },
+  transfer: { doc: 'issue', kind: 'خروج انبار', type: 'انتقال بین انبار', type_code: '4', party: '', line_account: '' },
 };
 
 export const DEFAULT_WAREHOUSES = [
@@ -58,4 +62,5 @@ export const DEFAULT_SETTINGS = {
   approval_required_in: false,
   sepidar_warehouses: DEFAULT_WAREHOUSES,
   sepidar_main_warehouse: '1001',
+  sepidar_next_no: {}, // last used Sepidar document number + 1, per "receipt:1001" / "issue:1001"
 };

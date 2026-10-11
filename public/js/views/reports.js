@@ -163,6 +163,42 @@ export async function reportsView({ query }) {
     try {
       readFilters();
       const pv = await api.get('/api/export/sepidar/preview' + qs({ from: validDatesQuiet(f.from), to: validDatesQuiet(f.to) }));
+      const t = todayJalali();
+      // optional bundle: creates the document (first item, full quantity) + barcode TXT for the rest
+      const bundleBox = (g) => {
+        const noIn = h('input', { class: 'input code num', inputmode: 'numeric', placeholder: 'شماره‌ی سند', value: g.next_no || '', maxlength: 9 });
+        const dateIn = h('input', { class: 'input code', inputmode: 'numeric', value: fmtJ(t), maxlength: 10 });
+        const partyIn = h('input', { class: 'input code', inputmode: 'numeric', value: g.party || '', maxlength: 20 });
+        return h('div', { class: 'card flat stack', style: { gap: '8px', borderColor: 'var(--warn)', background: 'var(--warn-soft)' } },
+          h('div', { class: 'row wrap' }, h('b', null, 'بسته‌ی ساخت سند + بارکد'), h('span', { class: 'chip warn' }, 'اختیاری / آزمایشی')),
+          h('div', { class: 'small' }, 'یک ZIP: ۱) فایل .xls که سند را با «قلم اول و تعداد کامل آن» می‌سازد (الگوی دریافت)  ۲) فایل بارکد بقیه‌ی اقلام. ترتیب فیلدهای «رسید» هنوز آزمایش نشده است.'),
+          h('div', { class: 'form-grid two' },
+            field('شماره‌ی سند سپیدار *', noIn, 'شماره‌ی موجود در همان انبار، سند قبلی را بازنویسی می‌کند'),
+            field('تاریخ سند', dateIn),
+            field(g.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', partyIn)),
+          h('button', { class: 'btn secondary block', disabled: g.doc_count === 0, onClick: async () => {
+            readFilters();
+            if (!validDates()) return;
+            if (!/^\d+$/.test(latinDigits(noIn.value).trim())) { toast('شماره‌ی سند سپیدار را وارد کنید.', 'err'); return; }
+            if (!parseJalali(dateIn.value)) { toast('تاریخ سند نامعتبر است.', 'err'); return; }
+            const ok = await confirmDialog({
+              title: `بسته‌ی ${g.kind} - ${g.type}`,
+              message: `${fa(g.doc_count)} سند به‌عنوان «ارسال‌شده به سپیدار» علامت می‌خورد و در فایل بعدی نمی‌آید. ادامه می‌دهید؟`,
+              confirmText: 'ایجاد و دانلود',
+            });
+            if (!ok) return;
+            try {
+              const res = await api.blob('POST', '/api/export/sepidar', {
+                from: f.from, to: f.to, group: g.key, bundle: true,
+                doc_no: latinDigits(noIn.value).trim(), date: latinDigits(dateIn.value).trim(), party: latinDigits(partyIn.value).trim(),
+              });
+              downloadBlob(await res.blob(), filenameOf(res, 'sepidar-bundle.zip'));
+              toast('بسته‌ی سپیدار آماده شد.', 'ok');
+              drawExports();
+            } catch (ex) { toast(ex.message, 'err'); }
+          } }, icon('download'), 'دریافت بسته (ZIP)'));
+      };
+
       const groupRow = (g) => h('div', { class: 'card flat stack', style: { gap: '8px' } },
         h('div', { class: 'row wrap' }, h('b', null, g.kind), h('span', { class: 'chip primary' }, `نوع: ${g.type}`)),
         h('div', { class: 'small' }, `در سپیدار: ${g.hint}`),
@@ -184,7 +220,8 @@ export async function reportsView({ query }) {
             toast(`فایل بارکد آماده شد (${fa(res.headers.get('X-Lines') || '')} خط).`, 'ok');
             drawExports();
           } catch (ex) { toast(ex.message, 'err'); }
-        } }, icon('download'), 'دریافت فایل بارکد (TXT)'));
+        } }, icon('download'), 'دریافت فایل بارکد (TXT)'),
+        g.doc_count ? bundleBox(g) : null);
 
       const batches = pv.batches.length
         ? h('div', { class: 'stack', style: { marginTop: '12px' } }, h('div', { class: 'muted small' }, 'دانلود مجدد فایل‌های قبلی'),
@@ -195,7 +232,13 @@ export async function reportsView({ query }) {
                 const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}`);
                 downloadBlob(await res.blob(), filenameOf(res, `barcodes-${b.id}.txt`));
               } catch (ex) { toast(ex.message, 'err'); }
-            } }, 'TXT'))))
+            } }, 'TXT'),
+            b.doc_no ? h('button', { class: 'btn sm secondary', onClick: async () => {
+              try {
+                const res = await api.blob('GET', `/api/export/sepidar/batches/${b.id}?format=bundle`);
+                downloadBlob(await res.blob(), filenameOf(res, `sepidar-bundle-${b.id}.zip`));
+              } catch (ex) { toast(ex.message, 'err'); }
+            } }, 'ZIP') : null)))
         : null;
 
       sep.replaceChildren(...[

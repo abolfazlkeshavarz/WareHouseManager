@@ -1,7 +1,8 @@
 import { api, qs } from '../api.js';
 import { store, isAdmin, refreshItems, refreshPending, reasonLabel, statusLabel } from '../store.js';
 import {
-  h, icon, fa, faId, fmtDate, fmtDateTime, itemTitle, emptyState, thumb, codeTag, toast, confirmDialog, promptDialog, normSearch, downloadBlob,
+  h, icon, fa, faId, fmtDate, fmtDateTime, itemTitle, emptyState, thumb, codeTag, toast, confirmDialog, promptDialog, normSearch,
+  downloadBlob, field, latinDigits,
 } from '../ui.js';
 import { navigate } from '../app.js';
 import { docCard } from './home.js';
@@ -41,6 +42,30 @@ function printSepidarSheet(d) {
   window.addEventListener('afterprint', done, { once: true });
   setTimeout(() => window.print(), 50);
 }
+
+/** Optional: ZIP with the creating .xls (first item, full quantity) + barcode TXT of the rest, for this one document. */
+function bundleOfDocument(d, g) {
+  const noIn = h('input', { class: 'input code num', inputmode: 'numeric', placeholder: 'شماره‌ی سند سپیدار', maxlength: 9 });
+  const dateIn = h('input', { class: 'input code', inputmode: 'numeric', value: faDigitsToLatin(fmtDate(d.decided_at || d.created_at)), maxlength: 10 });
+  const partyIn = h('input', { class: 'input code', inputmode: 'numeric', value: g?.party || '', maxlength: 20 });
+  return h('div', { class: 'card flat stack', style: { gap: '8px', borderColor: 'var(--warn)', background: 'var(--warn-soft)' } },
+    h('div', { class: 'row wrap' }, h('b', null, 'بسته‌ی ساخت سند + بارکد'), h('span', { class: 'chip warn' }, 'اختیاری / آزمایشی')),
+    h('div', { class: 'small' }, 'ZIP: فایل .xls که سند را با قلم اول (با تعداد کامل) می‌سازد + فایل بارکد بقیه‌ی اقلام.'),
+    h('div', { class: 'form-grid two' },
+      field('شماره‌ی سند سپیدار *', noIn, 'شماره‌ی موجود در همان انبار، سند قبلی را بازنویسی می‌کند'),
+      field('تاریخ', dateIn),
+      field(g?.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', partyIn)),
+    h('button', { class: 'btn secondary block', onClick: async () => {
+      const q = new URLSearchParams({ doc_no: latinDigits(noIn.value).trim(), date: latinDigits(dateIn.value).trim(), party: latinDigits(partyIn.value).trim() });
+      try {
+        const res = await api.blob('GET', `/api/documents/${d.id}/bundle.zip?${q}`);
+        downloadBlob(await res.blob(), `بسته-سپیدار-سند-${d.doc_no}.zip`);
+        toast('بسته‌ی سپیدار آماده شد.', 'ok');
+      } catch (ex) { toast(ex.message, 'err'); }
+    } }, icon('download'), 'دریافت بسته (ZIP)'));
+}
+
+const faDigitsToLatin = (s) => latinDigits(s);
 
 export async function docsView({ query }) {
   const admin = isAdmin();
@@ -162,7 +187,8 @@ export async function docDetailView({ params }) {
           toast(`فایل بارکد آماده شد (${fa(res.headers.get('X-Lines') || '')} خط).`, 'ok');
         } catch (ex) { toast(ex.message, 'err'); }
       } }, icon('download'), 'فایل بارکد سپیدار (TXT)'),
-      h('button', { class: 'btn secondary block', onClick: () => printSepidarSheet(d) }, icon('printer'), 'چاپ برگه‌ی ثبت در سپیدار')));
+      h('button', { class: 'btn secondary block', onClick: () => printSepidarSheet(d) }, icon('printer'), 'چاپ برگه‌ی ثبت در سپیدار'),
+      bundleOfDocument(d, g)));
   }
 
   // actions

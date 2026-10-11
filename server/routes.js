@@ -14,7 +14,7 @@ import {
 } from './services/items.js';
 import { queryMovements } from './services/movements.js';
 import {
-  buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile,
+  buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile, documentBundle,
 } from './services/exports.js';
 import {
   parseJalali, jalaliDayStartISO, jalaliDayEndISO, jalaliDate, todayJalali,
@@ -349,6 +349,15 @@ api.get('/export/sepidar/preview', requireAdmin, (req, res) => {
   res.json(sepidarPreview(dateRange(req.query)));
 });
 
+function bundleAttachment(res, name, file) {
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('X-Lines', String(file.lines ?? 0));
+  res.setHeader('Access-Control-Expose-Headers', 'X-Lines, X-Capped, X-Batch-Id');
+  res.setHeader('Content-Disposition', `attachment; filename="bundle.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(file.buffer);
+}
+
 function barcodeAttachment(res, name, file) {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('X-Lines', String(file.lines));
@@ -359,21 +368,32 @@ function barcodeAttachment(res, name, file) {
   res.send(file.buffer);
 }
 
-// one barcode file for all not-yet-exported approved documents of a Sepidar document type
+// one barcode file (or, optionally, the bundle ZIP) for all not-yet-exported approved documents of a Sepidar document type
 api.post('/export/sepidar', requireAdmin, (req, res) => {
   const range = dateRange(req.body ?? {});
-  const r = createSepidarExport(req.user, { from: range.from, to: range.to, group: req.body?.group });
+  const bundle = req.body?.bundle ? { doc_no: req.body.doc_no, date: req.body.date, party: req.body.party } : null;
+  const r = createSepidarExport(req.user, { from: range.from, to: range.to, group: req.body?.group, bundle });
   res.setHeader('X-Batch-Id', String(r.batchId));
-  barcodeAttachment(res, `بارکد-${r.info.kind}-${r.info.type}${r.info.dest ? '-' + r.info.dest : ''}-${stamp()}.txt`, r);
+  const label = `${r.info.kind}-${r.info.type}${r.info.dest ? '-' + r.info.dest : ''}-${stamp()}`;
+  if (r.bundle) return bundleAttachment(res, `بسته-سپیدار-${label}.zip`, r);
+  return barcodeAttachment(res, `بارکد-${label}.txt`, r);
 });
 
 api.get('/export/sepidar/batches/:id', requireAdmin, (req, res) => {
-  const r = regenerateSepidarBatch(Number(req.params.id));
-  barcodeAttachment(res, `بارکد-دسته-${req.params.id}.txt`, r);
+  const asBundle = req.query.format === 'bundle';
+  const r = regenerateSepidarBatch(Number(req.params.id), asBundle);
+  if (r.bundle) return bundleAttachment(res, `بسته-سپیدار-دسته-${req.params.id}.zip`, r);
+  return barcodeAttachment(res, `بارکد-دسته-${req.params.id}.txt`, r);
 });
 
 // the barcode file of ONE document
 api.get('/documents/:id/barcodes.txt', requireAdmin, (req, res) => {
   const r = documentBarcodeFile(Number(req.params.id));
   barcodeAttachment(res, `بارکد-سند-${r.doc.doc_no}.txt`, r);
+});
+
+// optional: the bundle (creating .xls + barcode TXT) of ONE document
+api.get('/documents/:id/bundle.zip', requireAdmin, (req, res) => {
+  const r = documentBundle(Number(req.params.id), { doc_no: req.query.doc_no, date: req.query.date, party: req.query.party });
+  bundleAttachment(res, `بسته-سپیدار-سند-${r.doc.doc_no}.zip`, r);
 });

@@ -1,8 +1,9 @@
 import ExcelJS from 'exceljs';
-import { db, tx, nowISO, audit, getSettings } from '../db.js';
+import { db, tx, nowISO, audit, getSettings, setSetting } from '../db.js';
 import { HttpError } from '../auth.js';
 import { REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS } from '../constants.js';
-import { jalaliDate, clockTime } from '../../public/js/lib/jalali.js';
+import XLSX from 'xlsx';
+import { jalaliDate, clockTime, parseJalali, latinDigits } from '../../public/js/lib/jalali.js';
 import { queryMovements } from './movements.js';
 
 const itemLabel = (r) => (r.variant ? `${r.name} (${r.variant})` : r.name);
@@ -285,7 +286,10 @@ export function sepidarGroupInfo(key) {
     const d = s.sepidar_warehouses.find((w) => w.code === dest);
     parts.push(`انبار مقصد: ${d?.title ?? dest} (${dest})`);
   }
-  return { key, base, doc: def.doc, kind: def.kind, type: def.type, dest: dest || '', warehouse: s.sepidar_main_warehouse, hint: parts.join(' • ') };
+  return {
+    key, base, doc: def.doc, kind: def.kind, type: def.type, dest: dest || '', warehouse: s.sepidar_main_warehouse, hint: parts.join(' • '),
+    party: def.party ?? '', next_no: s.sepidar_next_no?.[`${def.doc}:${s.sepidar_main_warehouse}`] ?? '',
+  };
 }
 
 export function sepidarPreview(range) {
@@ -302,30 +306,45 @@ export function sepidarPreview(range) {
   return { groups, batches };
 }
 
-/** One barcode file for all not-yet-exported approved documents of a Sepidar document type (marks them as exported). */
-export function createSepidarExport(user, { from, to, group }) {
+/**
+ * One file for all not-yet-exported approved documents of a Sepidar document type (marks them as exported).
+ * Default: the barcode TXT. With `bundle` ({doc_no, date, party}): the optional ZIP (creating .xls + barcode TXT).
+ */
+export function createSepidarExport(user, { from, to, group, bundle }) {
   const info = sepidarGroupInfo(group);
   if (!info) throw new HttpError(400, 'نوع سند سپیدار نامعتبر است.');
+  const checked = bundle ? checkBundleInput(bundle, info) : null; // validate before anything is marked as exported
   return tx(() => {
     const docs = sepidarCandidates({ from, to, includeExported: false, group });
     if (!docs.length) throw new HttpError(404, 'سند جدیدی برای این بخش وجود ندارد.');
     const rows = sepidarRows(docs.map((d) => d.id));
-    const id = Number(db.prepare('INSERT INTO sepidar_batches(created_at,created_by,doc_count,line_count,from_at,to_at,group_key) VALUES(?,?,?,?,?,?,?)')
-      .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group).lastInsertRowid);
+    const id = Number(db.prepare('INSERT INTO sepidar_batches(created_at,created_by,doc_count,line_count,from_at,to_at,group_key,doc_no,doc_date,party) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group,
+        checked?.docNo ?? null, checked?.date ?? null, checked?.party ?? null).lastInsertRowid);
     const mark = db.prepare('UPDATE documents SET sepidar_batch_id = ? WHERE id = ?');
     for (const d of docs) mark.run(id, d.id);
-    audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, items: rows.length });
-    const file = barcodeText(rows);
-    return { batchId: id, info, ...file };
+    if (checked) {
+      const next = { ...(getSettings().sepidar_next_no || {}), [`${info.doc}:${info.warehouse}`]: checked.docNo + 1 };
+      setSetting('sepidar_next_no', next);
+    }
+    audit(user, checked ? 'export.sepidar_bundle' : 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, items: rows.length });
+    if (checked) return { batchId: id, info, bundle: true, ...buildBundle(info, rows, bundle) };
+    return { batchId: id, info, ...barcodeText(rows) };
   });
 }
 
-/** Re-download a past batch (changes no state). */
-export function regenerateSepidarBatch(id) {
+/** Re-download a past batch (changes no state). `asBundle` rebuilds the ZIP for batches that were made as bundles. */
+export function regenerateSepidarBatch(id, asBundle = false) {
   const b = db.prepare('SELECT * FROM sepidar_batches WHERE id = ?').get(id);
   if (!b) throw new HttpError(404, 'دسته پیدا نشد.');
   const ids = db.prepare('SELECT id FROM documents WHERE sepidar_batch_id = ? ORDER BY decided_at, id').all(id).map((r) => r.id);
-  return { info: sepidarGroupInfo(b.group_key), ...barcodeText(sepidarRows(ids)) };
+  const info = sepidarGroupInfo(b.group_key);
+  const rows = sepidarRows(ids);
+  if (asBundle) {
+    if (!b.doc_no) throw new HttpError(409, 'این دسته به‌صورت بسته ساخته نشده است.');
+    return { info, bundle: true, ...buildBundle(info, rows, { doc_no: b.doc_no, date: b.doc_date, party: b.party ?? '' }) };
+  }
+  return { info, ...barcodeText(rows) };
 }
 
 /** The barcode file of ONE document (any status that moved stock). */
@@ -334,4 +353,157 @@ export function documentBarcodeFile(docId) {
   if (!d) throw new HttpError(404, 'سند پیدا نشد.');
   if (d.status !== 'approved') throw new HttpError(409, 'فقط برای سندهای تاییدشده فایل ساخته می‌شود.');
   return { doc: d, ...barcodeText(sepidarRows([docId])) };
+}
+
+/** The optional bundle of ONE approved document (does not mark anything as exported). */
+export function documentBundle(docId, input) {
+  const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(docId);
+  if (!d) throw new HttpError(404, 'سند پیدا نشد.');
+  if (d.status !== 'approved') throw new HttpError(409, 'فقط برای سندهای تاییدشده فایل ساخته می‌شود.');
+  const base = REASONS[d.reason]?.sepidar;
+  if (!base) throw new HttpError(409, 'این سند به سپیدار نمی‌رود.');
+  const key = base === 'transfer' ? `transfer:${d.dest_warehouse || REASONS[d.reason].dest_default || ''}` : base;
+  const info = sepidarGroupInfo(key);
+  return { doc: d, info, ...buildBundle(info, sepidarRows([docId]), input) };
+}
+
+// ---------- optional bundle: the creating .xls (first item, full quantity) + the barcode TXT (everything else) ----------
+// Sepidar's template import makes one document per row and refuses a document without an item, so the bundle holds
+//   1) a .xls that creates the document with its FIRST item and that item's full quantity,
+//   2) a TXT of barcodes for every other item (one line per unit) for the document's barcode input.
+// The creating file follows the 11 fields of the customer's خروج template (verified); the receipt layout is the same
+// idea but its field order is not verified yet.
+
+const BUNDLE_COLUMNS = {
+  issue: [
+    ['item_kind', 'نوع قلم'], ['number', 'خروج انبار شماره'], ['date', 'خروج انبار تاريخ'], ['warehouse', 'خروج انبار كد انبار'],
+    ['party', 'خروج انبار كد تحويل گيرنده'], ['dest', 'خروج انبار كد انبار مقصد'], ['type', 'خروج انبار نوع'],
+    ['row_no', 'قلم خروج انبار رديف'], ['item_code', 'قلم خروج انبار كد'], ['qty', 'قلم خروج انبار واحد اصلي'],
+    ['line_account', 'قلم خروج انبار كد حساب معين'],
+  ],
+  receipt: [
+    ['item_kind', 'نوع قلم'], ['number', 'رسيد انبار شماره'], ['date', 'رسيد انبار تاريخ'], ['warehouse', 'رسيد انبار كد انبار'],
+    ['account', 'رسيد انبار كد حساب معين'], ['party', 'رسيد انبار كد تحويل دهنده'], ['type', 'رسيد انبار نوع رسيد'],
+    ['row_no', 'قلم رسيد انبار رديف'], ['item_code', 'قلم رسيد انبار كد'], ['qty', 'قلم رسيد انبار واحد اصلي'],
+  ],
+};
+
+/** Validates the values the user types for a bundle. */
+export function checkBundleInput({ doc_no, date, party }, info) {
+  const docNo = Number(latinDigits(doc_no));
+  if (!Number.isInteger(docNo) || docNo < 1 || docNo > 99999999) throw new HttpError(400, 'شماره‌ی سند سپیدار را (به‌صورت عدد) وارد کنید.');
+  const j = parseJalali(String(date ?? ''));
+  if (!j) throw new HttpError(400, 'تاریخ سند نامعتبر است (مثال: 1405/07/18).');
+  const p = String(party ?? SEPIDAR_GROUPS[info.base]?.party ?? '').trim().slice(0, 30);
+  if (p && !/^[0-9A-Za-z_-]+$/.test(latinDigits(p))) throw new HttpError(400, 'کد طرف حساب نامعتبر است.');
+  return { docNo, date: `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`, party: latinDigits(p) };
+}
+
+/** The creating file as a real Excel 97-2003 (.xls) buffer: text cells, the quantity as a number. */
+export function creatingXls(info, first, { docNo, date, party }) {
+  const g = SEPIDAR_GROUPS[info.base];
+  const cols = BUNDLE_COLUMNS[g.doc];
+  const s = getSettings();
+  const values = {
+    item_kind: g.doc === 'receipt' ? 'InventoryReceiptItem' : 'InventoryDeliveryItem',
+    number: String(docNo),
+    date: `${date} 12:00:00 ق.ظ`, // the text Sepidar's own export writes (the plain forms were read as empty)
+    warehouse: info.warehouse,
+    party,
+    dest: info.dest,
+    type: g.type_code,
+    row_no: '1',
+    item_code: String(first.item_code),
+    qty: first.qty,
+    account: g.account ?? '',
+    line_account: g.line_account ?? '',
+  };
+  void s;
+  const table = [cols.map((c) => c[1]), cols.map((c) => values[c[0]] ?? '')];
+  const ws = XLSX.utils.aoa_to_sheet(table.map((r) => r.map((v) => (typeof v === 'number' ? v : String(v)))));
+  ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, Math.min(String(h).length + 2, 34)) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  return XLSX.write(wb, { bookType: 'biff8', type: 'buffer' });
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** Minimal ZIP writer (stored, UTF-8 names): enough to hand over a few small files as one download. */
+export function zipStore(files) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  for (const f of files) {
+    const name = Buffer.from(f.name, 'utf8');
+    const data = Buffer.isBuffer(f.data) ? f.data : Buffer.from(f.data);
+    const crc = crc32(data);
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); lh.writeUInt16LE(0, 8);
+    lh.writeUInt16LE(dosTime, 10); lh.writeUInt16LE(dosDate, 12); lh.writeUInt32LE(crc, 14);
+    lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
+    parts.push(lh, name, data);
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8); ch.writeUInt16LE(0, 10);
+    ch.writeUInt16LE(dosTime, 12); ch.writeUInt16LE(dosDate, 14); ch.writeUInt32LE(crc, 16);
+    ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24); ch.writeUInt16LE(name.length, 28);
+    ch.writeUInt32LE(offset, 42);
+    central.push(ch, name);
+    offset += lh.length + name.length + data.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...parts, cd, end]);
+}
+
+/** ZIP: 1-….xls (creates the document with the first item) + 2-….txt (barcodes of the rest) + 0-راهنما. */
+export function buildBundle(info, rows, input) {
+  if (!rows.length) throw new HttpError(404, 'قلمی برای این سند وجود ندارد.');
+  const { docNo, date, party } = checkBundleInput(input, info);
+  const [first, ...rest] = rows;
+  const xls = creatingXls(info, first, { docNo, date, party });
+  const barcodes = barcodeText(rest);
+  const name = (n) => `${n}-${info.kind}-${info.type}${info.dest ? `-${info.dest}` : ''}-شماره-${docNo}`;
+  const guide = [
+    `سند: ${info.kind} › ${info.type}${info.dest ? ` (انبار مقصد ${info.dest})` : ''}`,
+    `شماره‌ی سند سپیدار: ${docNo}    تاریخ: ${date}    انبار: ${info.warehouse}${party ? `    طرف حساب: ${party}` : ''}`,
+    '',
+    'مرحله ۱ — ساخت سند',
+    `  فهرست ${info.kind} › دریافت اطلاعات › الگوی دریافت، فایل «${name('1')}.xls» را وارد کنید.`,
+    `  این فایل سند را با قلم اول می‌سازد: کد ${first.item_code} × ${first.qty}.`,
+    '',
+    rest.length ? 'مرحله ۲ — افزودن بقیه‌ی اقلام با بارکد' : 'مرحله ۲ — لازم نیست (سند فقط یک قلم دارد)',
+    ...(rest.length ? [
+      `  سند ${docNo} را باز کنید و از «بارکد» زیر جدول اقلام فایل «${name('2')}.txt» را بخوانید.`,
+      `  هر خط یک واحد از کالا است: ${rest.length} کالا، ${barcodes.lines} خط.`,
+      '  شرط: «بارکد کالا» هر قلم در سپیدار برابر کد کالا باشد.',
+      ...(barcodes.capped ? [`  هشدار: برای کالایی که تعدادش بیش از ${MAX_LINES_PER_ITEM} است فقط ${MAX_LINES_PER_ITEM} خط نوشته شد.`] : []),
+    ] : []),
+    ...(info.doc === 'receipt' ? ['', 'توجه: ترتیب فیلدهای فایل «رسید» هنوز با الگوی دریافت شما آزمایش نشده است.'] : []),
+  ].join('\r\n') + '\r\n';
+  const files = [
+    { name: `${name('1')}.xls`, data: xls },
+    { name: `0-راهنما-شماره-${docNo}.txt`, data: Buffer.from('﻿' + guide, 'utf8') },
+  ];
+  if (rest.length) files.splice(1, 0, { name: `${name('2')}.txt`, data: barcodes.buffer });
+  return { buffer: zipStore(files), docNo, date, party, lines: barcodes.lines };
 }

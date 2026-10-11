@@ -228,6 +228,58 @@ test('full flow: opening stock → storekeeper request → approve → history �
   assert.equal(t1004.status, 200);
   assert.equal(await t1004.text(), '30801\r\n'.repeat(3));
 
+  // ---- optional bundle: creating .xls (first item, full quantity) + barcode TXT of the rest ----
+  {
+    const XLSX = (await import('xlsx')).default;
+    const unzip = (buf) => { // minimal reader for the stored ZIP we write
+      const files = {};
+      let p = 0;
+      while (buf.readUInt32LE(p) === 0x04034b50) {
+        const size = buf.readUInt32LE(p + 18);
+        const nameLen = buf.readUInt16LE(p + 26);
+        const name = buf.subarray(p + 30, p + 30 + nameLen).toString('utf8');
+        files[name] = buf.subarray(p + 30 + nameLen, p + 30 + nameLen + size);
+        p += 30 + nameLen + size;
+      }
+      return files;
+    };
+    // a fresh group for this test: sale of 2 different items
+    const s1 = await admin.req('POST', '/api/documents', { direction: 'out', reason: 'other_out', lines: [{ item_id: a.id, qty: 4 }, { item_id: b.id, qty: 2 }] });
+    assert.equal(s1.status, 201);
+    // validation happens before anything is marked as exported
+    assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'other_out', bundle: true, date: '1405/07/18' })).status, 400);
+    assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'other_out', bundle: true, doc_no: 61, date: 'x' })).status, 400);
+    assert.equal((await keeper.req('POST', '/api/export/sepidar', { group: 'other_out', bundle: true, doc_no: 61, date: '1405/07/18' })).status, 403);
+    const one = await admin.req('GET', `/api/documents/${s1.json.document.id}/bundle.zip?doc_no=61&date=1405/07/18&party=60034`, null, { raw: true });
+    assert.equal(one.status, 200);
+    const zip = unzip(Buffer.from(await one.arrayBuffer()));
+    const names = Object.keys(zip);
+    const xlsName = names.find((n) => n.endsWith('.xls'));
+    const txtName = names.find((n) => n.startsWith('2-'));
+    assert.ok(xlsName && txtName && names.some((n) => n.startsWith('0-')));
+    assert.equal(zip[xlsName].subarray(0, 4).toString('hex'), 'd0cf11e0'); // genuine .xls
+    const sheet = XLSX.read(zip[xlsName], { type: 'buffer' });
+    const aoa = XLSX.utils.sheet_to_json(sheet.Sheets[sheet.SheetNames[0]], { header: 1 });
+    assert.equal(aoa.length, 2);                       // header + the ONE creating line
+    assert.equal(aoa[1][0], 'InventoryDeliveryItem');
+    assert.equal(aoa[1][1], '61');
+    assert.equal(aoa[1][2], '1405/07/18 12:00:00 ق.ظ');
+    assert.equal(aoa[1][3], '1001');
+    assert.equal(aoa[1][4], '60034');                  // the party typed in
+    assert.equal(aoa[1][6], '3');                      // type code of «سایر»
+    assert.equal(aoa[1][8], '30700');                  // the FIRST item …
+    assert.equal(aoa[1][9], 4);                        // … with its FULL quantity
+    assert.equal(aoa[1][10], '111304');
+    assert.equal(zip[txtName].toString(), '30801\r\n30801\r\n');   // the rest, one line per unit
+    // the grouped bundle marks documents as exported and remembers the next number
+    const g = await admin.req('POST', '/api/export/sepidar', { group: 'other_out', bundle: true, doc_no: 61, date: '1405/07/18', party: '60034' }, { raw: true });
+    assert.equal(g.status, 200);
+    assert.equal(g.headers.get('content-type'), 'application/zip');
+    const pv = await admin.req('GET', '/api/export/sepidar/preview');
+    assert.equal(pv.json.groups.find((x) => x.key === 'other_out').doc_count, 0);
+    assert.equal(pv.json.groups.find((x) => x.key === 'other_out').next_no, 62);
+  }
+
   // ---- the complete export: who added / dropped which part, at what time, per day ----
   const full = await admin.req('GET', '/api/export/full', null, { raw: true });
   const wb2 = new ExcelJS.Workbook();
@@ -254,13 +306,13 @@ test('full flow: opening stock → storekeeper request → approve → history �
   assert.equal(firstOut['موجودی قبل'], 100);
   assert.equal(firstOut['موجودی بعد'], 70);
   assert.ok(firstOut['روز هفته']);
-  // the same part's day summary: starts at 0, +105 in, -37 out, ends at 68
+  // the same part's day summary: starts at 0, +105 in, -41 out, ends at 64
   const sumDay = rowsOf(wb2.getWorksheet('خلاصه روزانه قطعات')).find((r) => r['کد'] === '30700');
   assert.equal(sumDay['موجودی اول روز'], 0);
   assert.equal(sumDay['جمع ورود'], 105);
-  assert.equal(sumDay['جمع خروج'], 37);
-  assert.equal(sumDay['موجودی آخر روز'], 68);
-  assert.equal(sumDay['تعداد حرکت'], 5);
+  assert.equal(sumDay['جمع خروج'], 41);
+  assert.equal(sumDay['موجودی آخر روز'], 64);
+  assert.equal(sumDay['تعداد حرکت'], 6);
   const people = rowsOf(wb2.getWorksheet('خلاصه روزانه کاربران'));
   const keeperRow = people.find((r) => r['کاربر'] === 'انباردار');
   assert.ok(keeperRow && keeperRow['اسناد ثبت‌شده'] >= 3);
