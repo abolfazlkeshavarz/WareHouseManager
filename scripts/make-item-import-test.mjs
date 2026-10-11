@@ -4,7 +4,7 @@
 //   node scripts/make-item-import-test.mjs "<path>/الگو كالا.xls" [outDir] [count]
 //
 // The header row is copied from the template that Sepidar exported, so the 21 columns always match.
-// Variants: item type 1 / 2 (کالا/خدمت نوع) with and without a barcode; each uses its own code range (8801xx … 8805xx).
+// Variants: item type 1 / 2 (کالا/خدمت نوع) with and without a barcode; each uses its own code range (8806xx … 8808xx).
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -32,7 +32,7 @@ const C = {
   type: col('نوع قلم'), kind: header.findIndex((h) => String(h).endsWith('نوع') && String(h).includes('كالا/خدمت')),
   code: header.findIndex((h) => String(h).endsWith('كد') && String(h).includes('كالا/خدمت') && !String(h).includes('گروه')),
   title: col('عنوان'), barcode: col('بار كد'), unit: col('واحد اصلي'), fixedRatio: col('نسبت واحدها ثابت'),
-  tracking: col('عامل رديابي'), taxFree: col('معاف'), sellable: col('قابل فروش'), serial: col('ثبت سريال'),
+  tracking: col('عامل رديابي'), taxFree: col('معاف'), sellable: col('قابل فروش'), serial: col('ثبت سريال'), related: col('انبارهاي مرتبط'), defWh: col('انبار پيش فرض'),
 };
 
 // Sepidar stores Arabic ي / ك; our names use Persian ی / ک.
@@ -58,6 +58,7 @@ function build(kind, withBarcode, firstCode, barcodeOf = (c) => c) {
     r[C.taxFree] = 'False';
     r[C.sellable] = 'True';
     r[C.serial] = 'False';
+    if (kind === '1') { r[C.related] = '1001'; r[C.defWh] = '1001'; } // goods need at least one warehouse
     rows.push(r);
   });
   const out = XLSX.utils.book_new();
@@ -66,11 +67,11 @@ function build(kind, withBarcode, firstCode, barcodeOf = (c) => c) {
 }
 
 fs.mkdirSync(outDir, { recursive: true });
-// each variant has its own code range so they can all be imported one after another
-fs.writeFileSync(path.join(outDir, 'kala-C-type1-barcode.xls'), build('1', true, FIRST_CODE + 100));
-fs.writeFileSync(path.join(outDir, 'kala-D-type2-no-barcode.xls'), build('2', false, FIRST_CODE + 200));
-fs.writeFileSync(path.join(outDir, 'kala-E-type1-no-barcode.xls'), build('1', false, FIRST_CODE + 300));
-// is the barcode rejected for any value, or only when it equals the item code?
-fs.writeFileSync(path.join(outDir, 'kala-F-type1-barcode-different.xls'), build('1', true, FIRST_CODE + 400, (c) => '77' + c));
-fs.writeFileSync(path.join(outDir, 'kala-G-type1-barcode-letters.xls'), build('1', true, FIRST_CODE + 500, (c) => 'B' + c));
-console.log(`wrote 5 variants of ${COUNT} items to ${outDir}`);
+// goods (type 1) with warehouse 1001 as related + default; type 2 is a service in Sepidar and cannot have a barcode
+const files = [
+  ['kala-H-goods-barcode-eq-code.xls', build('1', true, FIRST_CODE + 600)],
+  ['kala-I-goods-barcode-different.xls', build('1', true, FIRST_CODE + 700, (c) => '77' + c)],
+  ['kala-J-goods-no-barcode.xls', build('1', false, FIRST_CODE + 800)],
+];
+for (const [name, buf] of files) fs.writeFileSync(path.join(outDir, name), buf);
+console.log(`wrote ${files.length} variants of ${COUNT} items to ${outDir}`);
