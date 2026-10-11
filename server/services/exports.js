@@ -363,6 +363,7 @@ export async function createSepidarExport(user, { from, to, format, group, doc_n
     audit(user, 'export.sepidar', 'sepidar_batch', id, { group, docs: docs.length, lines: rows.length, doc_no: docNo });
     return { id, rows };
   });
+  if (format === 'bundle') return { batchId: batch.id, buffer: await buildBundle(info, batch.rows, { docNo, date: docDate }) };
   return { batchId: batch.id, buffer: await renderSepidar(sepidarTable(info, batch.rows, { docNo, date: docDate }), format, batch.rows, info) };
 }
 
@@ -374,6 +375,7 @@ export async function regenerateSepidarBatch(id, format) {
   if (!info || !b.doc_no) throw new HttpError(409, 'این دسته مربوط به نسخه قدیمی است و قابل بازسازی نیست.');
   const ids = db.prepare('SELECT id FROM documents WHERE sepidar_batch_id = ? ORDER BY decided_at, id').all(id).map((r) => r.id);
   const rows = sepidarRows(ids);
+  if (format === 'bundle') return buildBundle(info, rows, { docNo: b.doc_no, date: b.doc_date });
   return renderSepidar(sepidarTable(info, rows, { docNo: b.doc_no, date: b.doc_date }), format, rows, info);
 }
 
@@ -386,13 +388,13 @@ export async function regenerateSepidarBatch(id, format) {
  *   mode 'repeat' -> the code once per unit (what a barcode scanner log looks like)
  *   mode 'tab' / 'space' / 'semicolon' -> other separators
  */
-export function itemsText(rows, mode = 'none') {
+export function itemsText(rows, mode = 'none', cap = 5000) {
   const lines = [];
   if (mode === 'latin') lines.push('Code,Quantity');
   rows.forEach((r, i) => {
     switch (mode) {
       case 'repeat': // barcode-scanner style: one line per unit (capped, a scanner log is never huge)
-        for (let k = 0; k < Math.min(r.qty, 5000); k++) lines.push(String(r.item_code));
+        for (let k = 0; k < Math.min(r.qty, cap); k++) lines.push(String(r.item_code));
         break;
       case 'tab': lines.push(`${r.item_code}\t${r.qty}`); break;
       case 'space': lines.push(`${r.item_code} ${r.qty}`); break;
@@ -482,3 +484,94 @@ export async function renderSepidar(table, format, rows, info) {
 }
 
 export function sepidarGroupInfo(key, party) { return groupInfo(key, party); }
+
+// ---------- bundle: create the document (1 item) + add the rest by barcode ----------
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** Minimal ZIP writer (stored, UTF-8 names): enough to hand over a few small files as one download. */
+export function zipStore(files) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  for (const f of files) {
+    const name = Buffer.from(f.name, 'utf8');
+    const data = Buffer.isBuffer(f.data) ? f.data : Buffer.from(f.data);
+    const crc = crc32(data);
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); lh.writeUInt16LE(0, 8);
+    lh.writeUInt16LE(dosTime, 10); lh.writeUInt16LE(dosDate, 12); lh.writeUInt32LE(crc, 14);
+    lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
+    parts.push(lh, name, data);
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8); ch.writeUInt16LE(0, 10);
+    ch.writeUInt16LE(dosTime, 12); ch.writeUInt16LE(dosDate, 14); ch.writeUInt32LE(crc, 16);
+    ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24); ch.writeUInt16LE(name.length, 28);
+    ch.writeUInt32LE(offset, 42);
+    central.push(ch, name);
+    offset += lh.length + name.length + data.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...parts, cd, end]);
+}
+
+const MAX_BARCODE_LINES = 50000;
+
+/**
+ * The working Sepidar flow (verified with your Sepidar): a document needs one item to exist, and the barcode input
+ * adds ONE unit per line. So the bundle holds
+ *   1) an .xls that creates the document with its first item (template import: one row = one document),
+ *   2) a TXT of barcodes (item codes) for every remaining unit, to be read by the document's barcode input.
+ */
+export async function buildBundle(info, rows, { docNo, date }) {
+  if (!rows.length) throw new HttpError(404, 'قلمی برای این سند وجود ندارد.');
+  const [first, ...rest] = rows;
+  const xls = await renderSepidar(sepidarTable(info, [first], { docNo, date }), 'xls');
+  const units = rest.reduce((n, r) => n + r.qty, 0);
+  const capped = rest.some((r) => r.qty > MAX_BARCODE_LINES);
+  const name = (n) => `${n}-${info.kind}-${info.type}${info.dest ? `-${info.dest}` : ''}-شماره-${docNo}`;
+  const guide = [
+    `سند: ${info.kind} › ${info.type}${info.dest ? ` (انبار مقصد ${info.dest})` : ''}`,
+    `شماره‌ی سند سپیدار: ${docNo}    تاریخ: ${date}    انبار: ${info.warehouse}`,
+    '',
+    'مرحله ۱ — ساخت سند',
+    `  فهرست ${info.kind} › دریافت اطلاعات › الگوی دریافت، فایل «${name('1')}.xls» را وارد کنید.`,
+    `  این فایل سند را با قلم اول می‌سازد: کد ${first.item_code} × ${first.qty}.`,
+    '',
+    rest.length ? 'مرحله ۲ — افزودن بقیه‌ی اقلام با بارکد' : 'مرحله ۲ — لازم نیست (سند فقط یک قلم دارد)',
+    ...(rest.length ? [
+      `  سند ${docNo} را باز کنید، از «بارکد» زیر جدول اقلام فایل «${name('2')}.txt» را بخوانید.`,
+      `  هر خط یک واحد از کالا است: ${rest.length} کالا، ${units} خط.`,
+      '  شرط: «بارکد کالا» هر قلم در سپیدار برابر کد کالا باشد.',
+      ...(capped ? [`  هشدار: برای کالایی که تعدادش بیش از ${MAX_BARCODE_LINES} است فقط ${MAX_BARCODE_LINES} خط نوشته شد.`] : []),
+    ] : []),
+    '',
+    'بعد از ثبت، موجودی هر قلم را با گزارش «برگه‌ی ثبت در سپیدار» مقایسه کنید.',
+  ].join('\r\n') + '\r\n';
+  const files = [
+    { name: `${name('1')}.xls`, data: xls },
+    { name: `0-راهنما-شماره-${docNo}.txt`, data: Buffer.from('﻿' + guide, 'utf8') },
+  ];
+  if (rest.length) files.splice(1, 0, { name: `${name('2')}.txt`, data: itemsText(rest, 'repeat', MAX_BARCODE_LINES) });
+  return zipStore(files);
+}

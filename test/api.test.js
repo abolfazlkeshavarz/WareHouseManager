@@ -241,6 +241,22 @@ test('full flow: opening stock → storekeeper request → approve → history �
     setSetting('sepidar_layout', 'flat');
   }
 
+  // bundle: ZIP with the document-creating .xls + the barcode TXT (one line per unit)
+  {
+    const { zipStore, buildBundle, sepidarGroupInfo: gi, itemsText } = await import('../server/services/exports.js');
+    const z = zipStore([{ name: 'a.txt', data: 'hello' }, { name: 'ب.txt', data: 'x' }]);
+    assert.equal(z.subarray(0, 4).toString('hex'), '504b0304'); // local header
+    assert.equal(z.readUInt32LE(z.length - 22), 0x06054b50);     // end of central directory
+    assert.equal(z.readUInt16LE(z.length - 22 + 10), 2);          // two entries
+    assert.equal(itemsText([{ item_code: '9', qty: 3 }], 'repeat', 2).toString(), '9\r\n9\r\n'); // cap
+    const rows = [{ item_code: '355', item_title: 'a', qty: 10 }, { item_code: '31400', item_title: 'b', qty: 3 }];
+    const zip = await buildBundle(gi('consumption'), rows, { docNo: 990, date: '1405/07/19' });
+    const text = zip.toString('latin1');
+    assert.ok(text.includes('.xls') && text.includes('.txt'));
+    assert.ok(zip.includes(Buffer.from('31400\r\n31400\r\n31400\r\n'))); // 3 units = 3 lines
+    assert.ok(!zip.includes(Buffer.from('355\r\n')));                     // the first item goes into the .xls instead
+  }
+
   // items-only Excel for the in-document import: the item grid's columns
   {
     const { itemsTable, sepidarGroupInfo: gi } = await import('../server/services/exports.js');

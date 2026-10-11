@@ -21,7 +21,7 @@ import {
 export const api = express.Router();
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const MIME = { xls: 'application/vnd.ms-excel', xlsx: XLSX_MIME, csv: 'text/csv; charset=utf-8', txt: 'text/plain; charset=us-ascii', itemsxls: 'application/vnd.ms-excel' };
+const MIME = { xls: 'application/vnd.ms-excel', xlsx: XLSX_MIME, csv: 'text/csv; charset=utf-8', txt: 'text/plain; charset=us-ascii', itemsxls: 'application/vnd.ms-excel', bundle: 'application/zip' };
 
 /** Reads ?from=1405/07/01&to=1405/07/30 (Jalali, inclusive) into [fromISO, toISO). */
 function dateRange(q) {
@@ -405,17 +405,17 @@ api.get('/export/sepidar/preview', requireAdmin, sepidarOn, (req, res) => {
 
 api.post('/export/sepidar', requireAdmin, sepidarOn, wrap(async (req, res) => {
   const range = dateRange(req.body ?? {});
-  const format = ['csv', 'xlsx', 'txt', 'itemsxls'].includes(req.body?.format) ? req.body.format : 'xls';
+  const format = ['csv', 'xlsx', 'txt', 'itemsxls', 'bundle'].includes(req.body?.format) ? req.body.format : 'xls';
   const { batchId, buffer } = await createSepidarExport(req.user, { from: range.from, to: range.to, format, group: req.body?.group, doc_no: req.body?.doc_no, date: req.body?.date, party: req.body?.party });
   res.setHeader('X-Batch-Id', String(batchId));
   res.setHeader('Access-Control-Expose-Headers', 'X-Batch-Id');
   const g = sepidarGroupInfo(req.body.group);
-  const ext = format === 'itemsxls' ? 'xls' : format;
+  const ext = format === 'itemsxls' ? 'xls' : format === 'bundle' ? 'zip' : format;
   attachment(res, `${g.kind}-${g.type}${g.dest ? '-' + g.dest : ''}${format === 'itemsxls' ? '-اقلام' : ''}-${stamp()}.${ext}`, MIME[format], buffer);
 }));
 
 api.get('/export/sepidar/batches/:id', requireAdmin, sepidarOn, wrap(async (req, res) => {
-  const format = ['csv', 'xlsx', 'txt', 'itemsxls'].includes(req.query.format) ? req.query.format : 'xls';
+  const format = ['csv', 'xlsx', 'txt', 'itemsxls', 'bundle'].includes(req.query.format) ? req.query.format : 'xls';
   const buf = await regenerateSepidarBatch(Number(req.params.id), format);
-  attachment(res, `سپیدار-دسته-${req.params.id}${format === 'itemsxls' ? '-اقلام' : ''}.${format === 'itemsxls' ? 'xls' : format}`, MIME[format], buf);
+  attachment(res, `سپیدار-دسته-${req.params.id}${format === 'itemsxls' ? '-اقلام' : ''}.${format === 'itemsxls' ? 'xls' : format === 'bundle' ? 'zip' : format}`, MIME[format], buf);
 }));
