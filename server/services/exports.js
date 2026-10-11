@@ -250,7 +250,9 @@ export function sepidarTable(info, rows, { docNo, date }) {
     issuer: '',
     issuer2: issuerId,
     number: String(docNo),
-    date: `${date} 12:00:00 ق.ظ`,
+    // Sepidar's EXPORT prints "1405/07/18 12:00:00 ق.ظ", but its importer splits the date on "/" and parses every
+    // part as an integer, so the time suffix makes it fail ("Input string was not in a correct format").
+    date,
     warehouse: info.warehouse,
     warehouse_title: titles ? arabic(wh?.title ?? '') : '',
     account: info.doc === 'receipt' ? (acct ?? g.account ?? '') : '',
