@@ -334,6 +334,7 @@ api.put('/settings', requireAdmin, (req, res) => {
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
+  if (b.sepidar_titles !== undefined) { setSetting('sepidar_titles', !!b.sepidar_titles); changes.sepidar_titles = !!b.sepidar_titles; }
   if (b.sepidar_issuer_id !== undefined) {
     const v = String(b.sepidar_issuer_id).trim();
     if (v && !/^\d{1,9}$/.test(v)) throw new HttpError(400, 'شناسه‌ی کاربر باید عدد باشد.');

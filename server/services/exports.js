@@ -241,6 +241,10 @@ export function sepidarTable(info, rows, { docNo, date }) {
   const issuerId = /^\d+$/.test(String(s.sepidar_issuer_id ?? '')) ? String(s.sepidar_issuer_id) : '';
   const acct = s.sepidar_accounts?.[info.base];
   const lineAccount = acct ?? g.line_account ?? '';
+  // The "عنوان …" columns are display-only foreign keys: Sepidar's export prints a name there, but its importer
+  // parses them as numbers ("Input string was not in a correct format"). Leave them blank — the code columns
+  // identify warehouse / party / account / item — unless titles are switched on in settings.
+  const titles = !!s.sepidar_titles;
   const header = {
     item_kind: info.doc === 'receipt' ? 'InventoryReceiptItem' : 'InventoryDeliveryItem',
     issuer: '',
@@ -248,11 +252,11 @@ export function sepidarTable(info, rows, { docNo, date }) {
     number: String(docNo),
     date: `${date} 12:00:00 ق.ظ`,
     warehouse: info.warehouse,
-    warehouse_title: arabic(wh?.title ?? ''),
+    warehouse_title: titles ? arabic(wh?.title ?? '') : '',
     account: info.doc === 'receipt' ? (acct ?? g.account ?? '') : '',
     party: info.party,
     party_id: known.id ?? '',
-    party_title: arabic(info.party ? (known.title ?? '') : ''),
+    party_title: info.party ? (known.id ?? '') : '', // numeric id (or blank), never text
     src_wh: '',
     src_wh_title: '',
     transfer_no: '',
@@ -267,20 +271,20 @@ export function sepidarTable(info, rows, { docNo, date }) {
     carrier_code: isPurchase ? info.party : '',
     notes: '',
     dest: info.dest,
-    dest_title: arabic(dest?.title ?? ''),
+    dest_title: titles ? arabic(dest?.title ?? '') : '',
   };
   return [cols.map((c) => c.header), ...rows.map((r, idx) => {
     const line = {
       row_no: String(idx + 1),
       base: '',
       item_code: String(r.item_code),
-      item_title: arabic(r.item_title),
+      item_title: titles ? arabic(r.item_title) : '',
       qty: r.qty,
       price: '',
       line_total: '',
       amount: '',
       line_account: lineAccount,
-      line_account_title: lineAccount ? arabic(g.line_account_title ?? '') : '',
+      line_account_title: titles && lineAccount ? arabic(g.line_account_title ?? '') : '',
       line_notes: '',
     };
     return cols.map((c) => (c.key in header ? header[c.key] : line[c.key]) ?? '');

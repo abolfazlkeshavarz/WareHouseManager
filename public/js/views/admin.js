@@ -131,6 +131,7 @@ export async function settingsView() {
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
   const mainWh = h('select', { class: 'input' },
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
+  const titles = h('input', { type: 'checkbox', checked: !!s.sepidar_titles, style: { width: '22px', height: '22px' } });
   const issuer = h('input', { class: 'input code', inputmode: 'numeric', value: s.sepidar_issuer_id ?? '', maxlength: 9, placeholder: 'خالی' });
   const accounts = {};
   for (const [k, g] of Object.entries(groups)) {
@@ -174,6 +175,7 @@ export async function settingsView() {
       h('h2', null, 'فایل دریافت سپیدار — مقادیر پیش‌فرض'),
       h('div', { class: 'form-grid two' },
         ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
+        h('label', { class: 'row', style: { gap: '12px' } }, titles, h('span', null, 'پر کردن ستون‌های «عنوان» (انبار، قلم، حساب…) — معمولاً باید خاموش باشد')),
         field('شناسه‌ی عددی «صادر کننده (2)»', issuer, 'اگر خالی بماند سپیدار کاربر وارد شده را می‌گذارد؛ مقدار متنی (نام) باعث خطای «داده‌ی وارد شده صحیح نمی‌باشد» می‌شود'),
         ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].kind} › ${groups[k].type}`, el)))),
     h('div', { class: 'card stack', id: 'sepidar-cols' },
@@ -192,6 +194,7 @@ export async function settingsView() {
           sepidar_columns_v2: cols,
           sepidar_party_codes: Object.fromEntries(Object.entries(party).map(([k, el]) => [k, el.value])),
           sepidar_issuer_id: issuer.value,
+          sepidar_titles: titles.checked,
           sepidar_accounts: Object.fromEntries(Object.entries(accounts).map(([k, el]) => [k, el.value])),
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);

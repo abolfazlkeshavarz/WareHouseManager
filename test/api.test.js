@@ -211,16 +211,16 @@ test('full flow: opening stock → storekeeper request → approve → history �
   assert.equal(at(1, 'number'), '41');
   assert.equal(at(1, 'date'), '1405/07/18 12:00:00 ق.ظ');
   assert.equal(at(1, 'warehouse'), '1001');
-  assert.equal(at(1, 'warehouse_title'), 'انبار مواد اوليه'); // Arabic letters, like Sepidar's data
+  assert.equal(at(1, 'warehouse_title'), ''); // display-only "عنوان" columns are blank (importer parses them as numbers)
   assert.equal(at(1, 'party'), '1001');
-  assert.equal(at(1, 'party_title'), 'توليد');
+  assert.equal(at(1, 'party_title'), '93'); // numeric id of party 1001, never text
   assert.equal(at(1, 'type'), '2'); // مصرف
   assert.equal(at(1, 'by_invoice'), 'False');
   assert.equal(at(1, 'total'), 0);
   assert.equal(at(1, 'row_no'), '1');
   assert.equal(at(2, 'row_no'), '2');
   assert.equal(at(1, 'line_account'), '111601');
-  assert.equal(at(1, 'line_account_title'), 'كاردرجريان ساخت');
+  assert.equal(at(1, 'line_account_title'), '');
   assert.equal(at(1, 'item_code'), '30700');
   assert.equal(at(1, 'qty'), 30);
   assert.equal(at(2, 'item_code'), '30801');
