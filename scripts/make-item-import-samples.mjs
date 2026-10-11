@@ -1,6 +1,7 @@
 // Builds test files for Sepidar's «الگوی دریافت کالا» (item master import), copying the layout of your own item-pattern
 // export. Two files:
 //   A) 10 NEW test items (new codes 880001..880010, barcode = code): safe, nothing existing is touched.
+//   Yes/no columns are written as 1/0 (variant 1) or left blank (variant 2): "True" made the importer fail.
 //   B) 10 REAL items already in Sepidar, with their CURRENT title / unit / minimum stock copied from your stock report and
 //      the barcode set to the item code: for filling «بار کد کالا». Test with ONE row first (see the README of the repo).
 //
@@ -64,6 +65,13 @@ for (const row of xml.matchAll(/<Row[^>]*>([\s\S]*?)<\/Row>/g)) {
 const parts = JSON.parse(fs.readFileSync(path.join(root, 'server', 'seed', 'parts.json'), 'utf8'));
 const arabic = (t) => String(t ?? '').replace(/ی/g, 'ي').replace(/ک/g, 'ك');
 
+// Yes/no columns. The item importer converts them with Convert.ToDouble, so Sepidar's own "True"/"False" text fails
+// ("Input string was not in a correct format"); they must be 1/0 — or left blank.
+const BOOL_COLS = ['نسبت واحدها ثابت است', 'عامل رديابي دارد', 'معاف از ماليات (فروش)', 'قابل فروش', 'ثبت سريال']
+  .map((n) => header.findIndex((h) => String(h).includes(n)));
+if (BOOL_COLS.some((i) => i < 0)) throw new Error('a yes/no column is missing in the pattern');
+let boolStyle = 'numeric'; // 'numeric' (1/0) | 'blank'
+
 function makeRow({ code, title, unit, min, barcode }) {
   const r = [...example];
   r[C.kind] = 'ItemStock';
@@ -76,6 +84,10 @@ function makeRow({ code, title, unit, min, barcode }) {
   r[C.warehouse] = '1001';
   r[C.defWh] = '1001';
   r[C.min] = min === '' || min == null || Number.isNaN(Number(min)) ? '' : Number(min);
+  for (const i of BOOL_COLS) {
+    const on = /true/i.test(String(example[i]));
+    r[i] = boolStyle === 'blank' ? '' : on ? '1' : '0';
+  }
   return r;
 }
 
@@ -88,27 +100,38 @@ function write(name, rows) {
   fs.writeFileSync(path.join(out, name), XLSX.write(wb, { bookType: 'biff8', type: 'buffer' }));
 }
 
-// A) 10 new test items
-const A = parts.slice(0, 10).map((p, i) => makeRow({
-  code: 880001 + i,
-  title: arabic(`تست باركد ${i + 1} - ${p.name}${p.variant ? ` ${p.variant}` : ''}`),
-  unit: 'عدد',
-  min: '',
-  barcode: 880001 + i,
-}));
-write('A-ده-کالای-تستی-جدید-کد-880001-تا-880010.xls', A);
+// builds the A (new test items) and B (real items) row sets with the current boolStyle
+function sets() {
+  const A = parts.slice(0, 10).map((p, i) => makeRow({
+    code: 880001 + i,
+    title: arabic(`تست باركد ${i + 1} - ${p.name}${p.variant ? ` ${p.variant}` : ''}`),
+    unit: 'عدد',
+    min: '',
+    barcode: 880001 + i,
+  }));
+  // B) 10 real items that exist in both lists and have no barcode yet; current values copied from the report
+  const real = parts
+    .filter((p, i, a) => a.findIndex((q) => q.code === p.code) === i)
+    .filter((p) => report.has(p.code) && !report.get(p.code).barcode && !/^\d{6,}$/.test(p.code))
+    .slice(0, 10);
+  const B = real.map((p) => {
+    const r = report.get(p.code);
+    return makeRow({ code: p.code, title: r.title, unit: r.unit, min: r.min, barcode: p.code });
+  });
+  return { A, B };
+}
 
-// B) 10 real items that exist in both lists and have no barcode yet; current values copied from the report
-const real = parts
-  .filter((p, i, a) => a.findIndex((q) => q.code === p.code) === i)
-  .filter((p) => report.has(p.code) && !report.get(p.code).barcode && !/^\d{6,}$/.test(p.code))
-  .slice(0, 10);
-const B = real.map((p) => {
-  const r = report.get(p.code);
-  return makeRow({ code: p.code, title: r.title, unit: r.unit, min: r.min, barcode: p.code });
-});
-write('B-ده-کالای-واقعی-فقط-افزودن-بارکد.xls', B);
-write('B1-فقط-یک-کالا-برای-آزمایش-اول.xls', B.slice(0, 1));
+boolStyle = 'numeric';
+const num = sets();
+write('A1-ده-کالای-تستی-جدید-بولین-1-و-0.xls', num.A);
+write('B1-یک-کالای-واقعی-بولین-1-و-0.xls', num.B.slice(0, 1));
+write('B-ده-کالای-واقعی-بولین-1-و-0.xls', num.B);
+boolStyle = 'blank';
+const blank = sets();
+write('A2-ده-کالای-تستی-جدید-بولین-خالی.xls', blank.A);
+write('B2-یک-کالای-واقعی-بولین-خالی.xls', blank.B.slice(0, 1));
+const A = num.A;
+const B = num.B;
 
 const list = [
   'A: new test items', ...A.map((r) => `  ${r[C.code]}\t${r[C.title]}`),
