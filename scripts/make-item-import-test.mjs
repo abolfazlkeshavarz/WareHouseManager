@@ -4,7 +4,7 @@
 //   node scripts/make-item-import-test.mjs "<path>/الگو كالا.xls" [outDir] [count]
 //
 // The header row is copied from the template that Sepidar exported, so the 21 columns always match.
-// Two files are written: boolean columns as True/False (the template's own style) and as 1/0.
+// Variants: item type 1 / 2 (کالا/خدمت نوع) with and without a barcode; each uses its own code range (8801xx … 8805xx).
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -43,23 +43,21 @@ const parts = JSON.parse(fs.readFileSync(new URL('../server/seed/parts.json', im
 const step = parts.length / COUNT;
 const picks = Array.from({ length: COUNT }, (_, i) => parts[Math.floor(i * step)]);
 
-function build(bool) {
-  const T = bool ? 'True' : '1';
-  const F = bool ? 'False' : '0';
+function build(kind, withBarcode, firstCode, barcodeOf = (c) => c) {
   const rows = [header];
   picks.forEach((p, i) => {
     const r = new Array(header.length).fill('');
-    const code = String(FIRST_CODE + i);
-    r[C.kind] = '2';
+    const code = String(firstCode + i);
+    r[C.kind] = kind;
     r[C.code] = code;
     r[C.title] = arabic(`تست - ${p.name}${p.variant ? ' / ' + p.variant : ''}`);
-    r[C.barcode] = code;
+    r[C.barcode] = withBarcode ? barcodeOf(code) : '';
     r[C.unit] = 'عدد';
-    r[C.fixedRatio] = T;
-    r[C.tracking] = F;
-    r[C.taxFree] = F;
-    r[C.sellable] = T;
-    r[C.serial] = F;
+    r[C.fixedRatio] = 'True';
+    r[C.tracking] = 'False';
+    r[C.taxFree] = 'False';
+    r[C.sellable] = 'True';
+    r[C.serial] = 'False';
     rows.push(r);
   });
   const out = XLSX.utils.book_new();
@@ -68,7 +66,11 @@ function build(bool) {
 }
 
 fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(outDir, 'kala-test-A-true-false.xls'), build(true));
-fs.writeFileSync(path.join(outDir, 'kala-test-B-1-0.xls'), build(false));
-const last = FIRST_CODE + COUNT - 1;
-console.log(`wrote ${COUNT} items (codes ${FIRST_CODE}..${last}) to ${outDir}`);
+// each variant has its own code range so they can all be imported one after another
+fs.writeFileSync(path.join(outDir, 'kala-C-type1-barcode.xls'), build('1', true, FIRST_CODE + 100));
+fs.writeFileSync(path.join(outDir, 'kala-D-type2-no-barcode.xls'), build('2', false, FIRST_CODE + 200));
+fs.writeFileSync(path.join(outDir, 'kala-E-type1-no-barcode.xls'), build('1', false, FIRST_CODE + 300));
+// is the barcode rejected for any value, or only when it equals the item code?
+fs.writeFileSync(path.join(outDir, 'kala-F-type1-barcode-different.xls'), build('1', true, FIRST_CODE + 400, (c) => '77' + c));
+fs.writeFileSync(path.join(outDir, 'kala-G-type1-barcode-letters.xls'), build('1', true, FIRST_CODE + 500, (c) => 'B' + c));
+console.log(`wrote 5 variants of ${COUNT} items to ${outDir}`);
