@@ -199,28 +199,23 @@ test('full flow: opening stock → storekeeper request → approve → history �
   const sheet = XLSX.read(xlsBuf, { type: 'buffer' });
   const aoa = XLSX.utils.sheet_to_json(sheet.Sheets[sheet.SheetNames[0]], { header: 1 });
   const { SEPIDAR_COLUMN_DEFAULTS } = await import('../server/constants.js');
-  const colKeys = SEPIDAR_COLUMN_DEFAULTS.issue.map((c) => c.key);
-  assert.equal(aoa[0].length, 27); // same 27 columns, same order, as the real "الگو خروج" export
-  assert.deepEqual(aoa[0], SEPIDAR_COLUMN_DEFAULTS.issue.map((c) => c.header));
+  const enabled = SEPIDAR_COLUMN_DEFAULTS.issue.filter((c) => c.enabled);
+  const colKeys = enabled.map((c) => c.key);
+  // lean file: only real data columns (Sepidar rejects files with more columns than the template selects)
+  assert.deepEqual(colKeys, ['number', 'date', 'warehouse', 'party', 'dest', 'type', 'row_no', 'item_code', 'qty', 'line_account']);
+  assert.deepEqual(aoa[0], enabled.map((c) => c.header));
   assert.equal(aoa.length, 3); // header + 2 items
   const at = (r, k) => aoa[r][colKeys.indexOf(k)];
-  // the document header is repeated on every row; everything is text except quantity/totals
-  assert.equal(at(1, 'item_kind'), 'InventoryDeliveryItem');
-  assert.equal(at(1, 'issuer'), '');  // display-only name column stays blank
-  assert.equal(at(1, 'issuer2'), ''); // numeric user id: blank unless configured (a name made Sepidar's import fail)
+  // the document header is repeated on every row; everything is text except the quantity
   assert.equal(at(1, 'number'), '41');
   assert.equal(at(1, 'date'), '1405/07/18 12:00:00 ق.ظ');
   assert.equal(at(1, 'warehouse'), '1001');
-  assert.equal(at(1, 'warehouse_title'), ''); // display-only "عنوان" columns are blank (importer parses them as numbers)
   assert.equal(at(1, 'party'), '1001');
-  assert.equal(at(1, 'party_title'), '93'); // numeric id of party 1001, never text
+  assert.equal(at(1, 'dest'), '');
   assert.equal(at(1, 'type'), '2'); // مصرف
-  assert.equal(at(1, 'by_invoice'), 'False');
-  assert.equal(at(1, 'total'), 0);
   assert.equal(at(1, 'row_no'), '1');
   assert.equal(at(2, 'row_no'), '2');
   assert.equal(at(1, 'line_account'), '111601');
-  assert.equal(at(1, 'line_account_title'), '');
   assert.equal(at(1, 'item_code'), '30700');
   assert.equal(at(1, 'qty'), 30);
   assert.equal(at(2, 'item_code'), '30801');

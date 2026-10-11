@@ -152,7 +152,8 @@ export async function settingsView() {
       h('button', { class: 'btn sm icon secondary', disabled: i === cols[doc].length - 1, 'aria-label': 'پایین', onClick: () => { [cols[doc][i + 1], cols[doc][i]] = [cols[doc][i], cols[doc][i + 1]]; draw(); } }, '↓'))));
     draw();
     editors[doc] = box;
-    return h('div', { class: 'stack' }, h('div', { class: 'section-title', style: { margin: '10px 0 0' } }, title), box);
+    const reset = h('button', { class: 'btn sm secondary', onClick: () => { cols[doc] = defaults[doc].map((c) => ({ ...c })); draw(); } }, 'بازگشت به پیش‌فرض');
+    return h('div', { class: 'stack' }, h('div', { class: 'row', style: { margin: '10px 0 0' } }, h('div', { class: 'section-title grow', style: { margin: 0 } }, title), reset), box);
   }
 
   const err = h('div', { class: 'err-text' });
