@@ -173,6 +173,8 @@ export async function reportsView({ query }) {
       const groupRow = (g) => {
         const noIn = h('input', { class: 'input code num', inputmode: 'numeric', placeholder: 'شماره سند', value: g.next_no || '', maxlength: 9 });
         const dateIn = h('input', { class: 'input code', inputmode: 'numeric', value: fmtJ(t), maxlength: 10 });
+        const needsParty = g.base !== 'transfer';
+        const partyIn = h('input', { class: 'input code', inputmode: 'numeric', value: g.party || '', maxlength: 20, placeholder: g.doc === 'receipt' ? 'مثلاً 60031' : 'مثلاً 1001' });
         return h('div', { class: 'card flat stack', style: { gap: '8px' } },
         h('div', { class: 'row wrap' },
           h('b', null, g.kind), g.type ? h('span', { class: 'chip primary' }, `نوع: ${g.type}`) : null),
@@ -182,7 +184,8 @@ export async function reportsView({ query }) {
           : 'سند جدیدی وجود ندارد'),
         g.doc_count ? h('div', { class: 'form-grid two' },
           field('شماره سند در سپیدار *', noIn, 'اولین شماره‌ی آزاد انبار در سپیدار؛ اگر شماره‌ی موجود را بدهید سند قبلی به‌روزرسانی می‌شود!'),
-          field('تاریخ سند', dateIn)) : null,
+          field('تاریخ سند', dateIn),
+          needsParty ? field(g.doc === 'receipt' ? 'کد تحویل‌دهنده' : 'کد تحویل‌گیرنده', partyIn, g.doc === 'receipt' ? 'کد تامین‌کننده/طرف حساب در سپیدار' : 'برای «مصرف»: 1001 (تولید)') : null) : null,
         h('button', { class: 'btn block', disabled: g.doc_count === 0, onClick: async () => {
           readFilters();
           if (!validDates()) return;
@@ -195,7 +198,7 @@ export async function reportsView({ query }) {
           });
           if (!ok) return;
           try {
-            const res = await api.blob('POST', '/api/export/sepidar', { from: f.from, to: f.to, format, group: g.key, doc_no: latinDigits(noIn.value).trim(), date: latinDigits(dateIn.value).trim() });
+            const res = await api.blob('POST', '/api/export/sepidar', { from: f.from, to: f.to, format, group: g.key, doc_no: latinDigits(noIn.value).trim(), date: latinDigits(dateIn.value).trim(), party: needsParty ? latinDigits(partyIn.value).trim() : undefined });
             downloadBlob(await res.blob(), filenameOf(res, `sepidar.${format}`));
             toast('فایل آماده شد.', 'ok');
             drawExports();

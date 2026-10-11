@@ -134,7 +134,7 @@ export async function settingsView() {
   const issuer = h('input', { class: 'input', value: s.sepidar_issuer ?? '', maxlength: 60 });
   const accounts = {};
   for (const [k, g] of Object.entries(groups)) {
-    if (g.doc === 'receipt') accounts[k] = h('input', { class: 'input code', value: s.sepidar_accounts?.[k] || g.account || '', maxlength: 30 });
+    accounts[k] = h('input', { class: 'input code', value: s.sepidar_accounts?.[k] || g.account || g.line_account || '', maxlength: 30, placeholder: '—' });
   }
   const party = {};
   for (const [k, g] of Object.entries(groups)) {
@@ -175,7 +175,7 @@ export async function settingsView() {
       h('div', { class: 'form-grid two' },
         ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
         field('نام «صادر کننده» در فایل', issuer, 'همان نام کاربری که در سپیدار وارد می‌شود، مثلاً «سرپرست»'),
-        ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].type}`, el)))),
+        ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].kind} › ${groups[k].type}`, el)))),
     h('div', { class: 'card stack', id: 'sepidar-cols' },
       h('h2', null, 'ستون‌های فایل دریافت سپیدار'),
       h('div', { class: 'hint' }, 'سپیدار ردیف اول فایل را به‌عنوان عنوان ستون می‌خواند. عنوان‌ها باید با نام ستون‌های «الگوی دریافت رسید انبار / خروج انبار» (با گزینه‌ی «نام کامل») یکی باشند. اگر سپیدار ستونی را نشناخت، عنوان آن را اینجا اصلاح کنید.'),

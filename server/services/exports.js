@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { db, tx, nowISO, audit, getSettings, setSetting } from '../db.js';
 import { HttpError } from '../auth.js';
 import XLSX from 'xlsx';
-import { REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS, SEPIDAR_COLUMN_DEFAULTS } from '../constants.js';
+import { REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS, SEPIDAR_COLUMN_DEFAULTS, SEPIDAR_KNOWN_PARTIES } from '../constants.js';
 import { parseJalali, latinDigits } from '../../public/js/lib/jalali.js';
 import { jalaliDate, clockTime } from '../../public/js/lib/jalali.js';
 import { queryMovements } from './movements.js';
@@ -159,13 +159,13 @@ function groupKey(d) {
   return base === 'transfer' ? `transfer:${d.dest_warehouse || REASONS[d.reason].dest_default || ''}` : base;
 }
 
-function groupInfo(key) {
+function groupInfo(key, partyOverride) {
   const [base, dest] = String(key).split(':');
   const def = SEPIDAR_GROUPS[base];
   if (!def) return null;
   const s = getSettings();
   const main = s.sepidar_warehouses.find((w) => w.code === s.sepidar_main_warehouse);
-  const party = s.sepidar_party_codes?.[base] ?? def.party;
+  const party = String(partyOverride ?? s.sepidar_party_codes?.[base] ?? def.party ?? '').trim();
   const parts = [`انبار: ${main?.title ?? 'انبار'} (${s.sepidar_main_warehouse})`];
   if (base === 'transfer') {
     const d = s.sepidar_warehouses.find((w) => w.code === dest);
@@ -200,12 +200,12 @@ export function sepidarPreview(range) {
 function sepidarRows(docIds) {
   if (!docIds.length) return [];
   const rows = db.prepare(`
-    SELECT l.qty, i.code, i.sepidar_code, i.id AS item_id
+    SELECT l.qty, i.code, i.sepidar_code, i.name, i.variant, i.id AS item_id
     FROM document_lines l JOIN documents d ON d.id = l.document_id JOIN items i ON i.id = l.item_id
     WHERE d.id IN (${docIds.map(() => '?').join(',')}) ORDER BY d.decided_at, d.id, l.id`).all(...docIds);
   const byItem = new Map();
   for (const r of rows) {
-    const e = byItem.get(r.item_id) || { item_code: r.sepidar_code || r.code, qty: 0 };
+    const e = byItem.get(r.item_id) || { item_code: r.sepidar_code || r.code, item_title: itemLabel(r), qty: 0 };
     e.qty += r.qty;
     byItem.set(r.item_id, e);
   }
@@ -225,7 +225,8 @@ const arabic = (t) => String(t ?? '').replace(/ی/g, 'ي').replace(/ک/g, 'ك');
 
 /**
  * One row per item; the document header is repeated on every row (that is how Sepidar's template export/import
- * works: rows with the same number + warehouse are one document). Every cell is text, as in Sepidar's own file.
+ * works: rows with the same number + warehouse are one document). Cell types follow Sepidar's own file: text,
+ * except the quantity and the zero totals, which are numbers.
  */
 export function sepidarTable(info, rows, { docNo, date }) {
   const s = getSettings();
@@ -233,37 +234,54 @@ export function sepidarTable(info, rows, { docNo, date }) {
   const wh = s.sepidar_warehouses.find((w) => w.code === info.warehouse);
   const dest = s.sepidar_warehouses.find((w) => w.code === info.dest);
   const g = SEPIDAR_GROUPS[info.base];
-  const sameAsDefault = info.party === g.party;
+  const known = SEPIDAR_KNOWN_PARTIES[info.party] ?? {};
   const isPurchase = info.base === 'purchase';
   const issuer = arabic(s.sepidar_issuer || 'سرپرست');
+  const acct = s.sepidar_accounts?.[info.base];
+  const lineAccount = acct ?? g.line_account ?? '';
   const header = {
-    item_kind: '',
+    item_kind: info.doc === 'receipt' ? 'InventoryReceiptItem' : 'InventoryDeliveryItem',
     issuer,
     issuer2: issuer,
     number: String(docNo),
     date: `${date} 12:00:00 ق.ظ`,
     warehouse: info.warehouse,
     warehouse_title: arabic(wh?.title ?? ''),
-    account: s.sepidar_accounts?.[info.base] ?? g.account,
+    account: info.doc === 'receipt' ? (acct ?? g.account ?? '') : '',
     party: info.party,
-    party_id: sameAsDefault ? g.party_id : '',
+    party_id: known.id ?? '',
+    party_title: arabic(info.party ? (known.title ?? '') : ''),
     src_wh: '',
     src_wh_title: '',
     transfer_no: '',
+    proforma_no: '',
     type: g.type_code,
     acct_doc_no: '',
     acct_doc_date: '',
     net: 0,
-    carrier: isPurchase && sameAsDefault ? g.party_id : '',
+    total: 0,
+    by_invoice: 'False',
+    carrier: isPurchase ? (known.id ?? '') : '',
     carrier_code: isPurchase ? info.party : '',
     notes: '',
     dest: info.dest,
     dest_title: arabic(dest?.title ?? ''),
   };
-  const line = (r) => ({ item_code: String(r.item_code), qty: r.qty });
-  return [cols.map((c) => c.header), ...rows.map((r) => {
-    const l = line(r);
-    return cols.map((c) => (c.key in header ? header[c.key] : l[c.key]) ?? '');
+  return [cols.map((c) => c.header), ...rows.map((r, idx) => {
+    const line = {
+      row_no: String(idx + 1),
+      base: '',
+      item_code: String(r.item_code),
+      item_title: arabic(r.item_title),
+      qty: r.qty,
+      price: '',
+      line_total: '',
+      amount: '',
+      line_account: lineAccount,
+      line_account_title: lineAccount ? arabic(g.line_account_title ?? '') : '',
+      line_notes: '',
+    };
+    return cols.map((c) => (c.key in header ? header[c.key] : line[c.key]) ?? '');
   })];
 }
 
@@ -276,16 +294,16 @@ function checkHeader({ doc_no, date }) {
 }
 
 /** Creates a batch for one group (marking its documents as exported) and returns the file buffer. */
-export async function createSepidarExport(user, { from, to, format, group, doc_no, date }) {
-  const info = groupInfo(group);
+export async function createSepidarExport(user, { from, to, format, group, doc_no, date, party }) {
+  const info = groupInfo(group, party);
   if (!info) throw new HttpError(400, 'نوع سند سپیدار نامعتبر است.');
   const { docNo, date: docDate } = checkHeader({ doc_no, date });
   const batch = tx(() => {
     const docs = sepidarCandidates({ from, to, includeExported: false, group });
     if (!docs.length) throw new HttpError(404, 'سند جدیدی برای این بخش وجود ندارد.');
     const rows = sepidarRows(docs.map((d) => d.id));
-    const id = Number(db.prepare('INSERT INTO sepidar_batches(created_at,created_by,doc_count,line_count,from_at,to_at,group_key,doc_no,doc_date) VALUES(?,?,?,?,?,?,?,?,?)')
-      .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group, docNo, docDate).lastInsertRowid);
+    const id = Number(db.prepare('INSERT INTO sepidar_batches(created_at,created_by,doc_count,line_count,from_at,to_at,group_key,doc_no,doc_date,party) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(nowISO(), user.id, docs.length, rows.length, from ?? null, to ?? null, group, docNo, docDate, info.party).lastInsertRowid);
     const mark = db.prepare('UPDATE documents SET sepidar_batch_id = ? WHERE id = ?');
     for (const d of docs) mark.run(id, d.id);
     const next = { ...(getSettings().sepidar_next_no || {}), [`${info.doc}:${info.warehouse}`]: docNo + 1 };
@@ -300,7 +318,7 @@ export async function createSepidarExport(user, { from, to, format, group, doc_n
 export async function regenerateSepidarBatch(id, format) {
   const b = db.prepare('SELECT * FROM sepidar_batches WHERE id = ?').get(id);
   if (!b) throw new HttpError(404, 'دسته پیدا نشد.');
-  const info = groupInfo(b.group_key);
+  const info = groupInfo(b.group_key, b.party ?? undefined);
   if (!info || !b.doc_no) throw new HttpError(409, 'این دسته مربوط به نسخه قدیمی است و قابل بازسازی نیست.');
   const ids = db.prepare('SELECT id FROM documents WHERE sepidar_batch_id = ? ORDER BY decided_at, id').all(id).map((r) => r.id);
   return renderSepidar(sepidarTable(info, sepidarRows(ids), { docNo: b.doc_no, date: b.doc_date }), format);
@@ -330,4 +348,4 @@ export async function renderSepidar(table, format) {
   return XLSX.write(wb, { bookType: 'biff8', type: 'buffer' });
 }
 
-export function sepidarGroupInfo(key) { return groupInfo(key); }
+export function sepidarGroupInfo(key, party) { return groupInfo(key, party); }

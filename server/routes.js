@@ -330,7 +330,7 @@ api.put('/settings', requireAdmin, (req, res) => {
   if (b.sepidar_accounts !== undefined) {
     const acc = {};
     for (const [k, g] of Object.entries(SEPIDAR_GROUPS)) {
-      if (g.doc === 'receipt') acc[k] = String(b.sepidar_accounts?.[k] ?? '').trim().slice(0, 30);
+      acc[k] = String(b.sepidar_accounts?.[k] ?? '').trim().slice(0, 30);
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
@@ -384,7 +384,7 @@ api.get('/export/sepidar/preview', requireAdmin, sepidarOn, (req, res) => {
 api.post('/export/sepidar', requireAdmin, sepidarOn, wrap(async (req, res) => {
   const range = dateRange(req.body ?? {});
   const format = ['csv', 'xlsx'].includes(req.body?.format) ? req.body.format : 'xls';
-  const { batchId, buffer } = await createSepidarExport(req.user, { from: range.from, to: range.to, format, group: req.body?.group, doc_no: req.body?.doc_no, date: req.body?.date });
+  const { batchId, buffer } = await createSepidarExport(req.user, { from: range.from, to: range.to, format, group: req.body?.group, doc_no: req.body?.doc_no, date: req.body?.date, party: req.body?.party });
   res.setHeader('X-Batch-Id', String(batchId));
   res.setHeader('Access-Control-Expose-Headers', 'X-Batch-Id');
   const g = sepidarGroupInfo(req.body.group);

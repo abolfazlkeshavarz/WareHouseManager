@@ -200,19 +200,29 @@ test('full flow: opening stock → storekeeper request → approve → history �
   const aoa = XLSX.utils.sheet_to_json(sheet.Sheets[sheet.SheetNames[0]], { header: 1 });
   const { SEPIDAR_COLUMN_DEFAULTS } = await import('../server/constants.js');
   const colKeys = SEPIDAR_COLUMN_DEFAULTS.issue.map((c) => c.key);
+  assert.equal(aoa[0].length, 27); // same 27 columns, same order, as the real "الگو خروج" export
   assert.deepEqual(aoa[0], SEPIDAR_COLUMN_DEFAULTS.issue.map((c) => c.header));
   assert.equal(aoa.length, 3); // header + 2 items
-  // the document header is repeated on every row; everything is text except the quantity
-  const row = Object.fromEntries(colKeys.map((k, i) => [k, aoa[1][i]]));
-  assert.equal(row.number, '41');
-  assert.equal(row.date, '1405/07/18 12:00:00 ق.ظ');
-  assert.equal(row.warehouse, '1001');
-  assert.equal(row.warehouse_title, 'انبار مواد اوليه'); // Arabic letters, like Sepidar's data
-  assert.equal(row.party, '1001');
-  assert.equal(row.item_code, '30700');
-  assert.equal(row.qty, 30);
-  assert.equal(aoa[2][colKeys.indexOf('item_code')], '30801');
-  assert.equal(aoa[2][colKeys.indexOf('qty')], 10);
+  const at = (r, k) => aoa[r][colKeys.indexOf(k)];
+  // the document header is repeated on every row; everything is text except quantity/totals
+  assert.equal(at(1, 'item_kind'), 'InventoryDeliveryItem');
+  assert.equal(at(1, 'number'), '41');
+  assert.equal(at(1, 'date'), '1405/07/18 12:00:00 ق.ظ');
+  assert.equal(at(1, 'warehouse'), '1001');
+  assert.equal(at(1, 'warehouse_title'), 'انبار مواد اوليه'); // Arabic letters, like Sepidar's data
+  assert.equal(at(1, 'party'), '1001');
+  assert.equal(at(1, 'party_title'), 'توليد');
+  assert.equal(at(1, 'type'), '2'); // مصرف
+  assert.equal(at(1, 'by_invoice'), 'False');
+  assert.equal(at(1, 'total'), 0);
+  assert.equal(at(1, 'row_no'), '1');
+  assert.equal(at(2, 'row_no'), '2');
+  assert.equal(at(1, 'line_account'), '111601');
+  assert.equal(at(1, 'line_account_title'), 'كاردرجريان ساخت');
+  assert.equal(at(1, 'item_code'), '30700');
+  assert.equal(at(1, 'qty'), 30);
+  assert.equal(at(2, 'item_code'), '30801');
+  assert.equal(at(2, 'qty'), 10);
   // missing number / bad date are rejected before anything is marked as exported
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', date: '1405/07/18' })).status, 400);
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 5, date: 'x' })).status, 400);

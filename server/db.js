@@ -128,6 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 
 // migrations for databases created by older versions
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN group_key TEXT'); } catch { /* column already exists */ }
+try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN party TEXT'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_no INTEGER'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_date TEXT'); } catch { /* exists */ }
 try { db.exec("ALTER TABLE documents ADD COLUMN dest_warehouse TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
