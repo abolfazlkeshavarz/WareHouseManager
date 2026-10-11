@@ -1,0 +1,9 @@
+{
+  "_note": "our code -> the code of the same part in Sepidar (matched by name and part number). 318 is the least certain: our \"اتصال چرخ\" vs Sepidar \"قفل چرخ بزرگ\".",
+  "map": {
+    "315": "31500",
+    "317": "31700",
+    "318": "31800",
+    "319": "31900"
+  }
+}

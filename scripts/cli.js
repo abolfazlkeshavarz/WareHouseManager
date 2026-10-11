@@ -7,7 +7,9 @@
 //
 // In production:  make prod-shell CMD="reset-password mokhtar"
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { db, hashPassword, nowISO, audit } from '../server/db.js';
+import { recodeItems } from '../server/services/items.js';
 
 const [cmd, ...args] = process.argv.slice(2);
 
@@ -21,7 +23,9 @@ function usage() {
   list-users
   create-admin <username> "<display name>"
   reset-password <username>
-  stats`);
+  stats
+  apply-sepidar-codes   rename our items to the codes they have in Sepidar (server/seed/sepidar-code-map.json)
+  recode <old-code> <new-code>`);
 }
 
 switch (cmd) {
@@ -53,6 +57,22 @@ switch (cmd) {
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     audit(null, 'cli.reset_password', 'user', username);
     console.log(`New temporary password for "${username}" (must be changed at first login):\n${pw}`);
+    break;
+  }
+  case 'apply-sepidar-codes':
+  case 'recode': {
+    let map;
+    if (cmd === 'recode') {
+      if (args.length !== 2) { usage(); process.exit(1); }
+      map = { [args[0]]: args[1] };
+    } else {
+      const file = new URL('../server/seed/sepidar-code-map.json', import.meta.url);
+      map = JSON.parse(fs.readFileSync(file, 'utf8')).map;
+    }
+    const r = recodeItems(null, map);
+    for (const c of r.changed) console.log(`renamed  ${c.from} -> ${c.to}   ${c.name}`);
+    for (const k of r.skipped) console.log(`skipped  ${k.from} -> ${k.to}   ${k.reason}`);
+    if (!r.changed.length && !r.skipped.length) console.log('nothing to do');
     break;
   }
   case 'stats': {

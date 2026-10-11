@@ -201,3 +201,24 @@ export function itemWithStats(id) {
 }
 
 export { tx };
+
+/**
+ * Renames item codes (old -> new) in an existing database. The item keeps its id, so QR labels, stock and the whole
+ * history stay attached. Skips (and reports) anything missing or whose target code is already taken.
+ */
+export function recodeItems(user, map) {
+  const changed = [];
+  const skipped = [];
+  tx(() => {
+    for (const [from, to] of Object.entries(map)) {
+      const it = db.prepare('SELECT * FROM items WHERE code = ?').get(from);
+      if (!it) { skipped.push({ from, to, reason: 'قطعه‌ای با کد مبدأ نیست' }); continue; }
+      if (db.prepare('SELECT 1 FROM items WHERE code = ?').get(to)) { skipped.push({ from, to, reason: 'کد مقصد قبلاً وجود دارد' }); continue; }
+      db.prepare(`UPDATE items SET code = ?, sepidar_code = CASE WHEN sepidar_code IS NULL OR sepidar_code = ? THEN ? ELSE sepidar_code END,
+                  updated_at = ? WHERE id = ?`).run(to, from, to, nowISO(), it.id);
+      audit(user, 'item.recode', 'item', it.id, { from, to });
+      changed.push({ from, to, name: it.name });
+    }
+  });
+  return { changed, skipped };
+}

@@ -346,6 +346,20 @@ test('items: create, duplicate code, edit, import template round trip', async ()
   assert.equal(imp.json.opening_docs, 1);
 });
 
+test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
+  const { recodeItems } = await import('../server/services/items.js');
+  const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();
+  assert.ok(before, 'fresh installs already use the Sepidar code for کاور موتور (پایین)');
+  assert.equal(db.prepare("SELECT 1 FROM items WHERE code = '315'").get(), undefined);
+  const mk = db.prepare("INSERT INTO items(code,sepidar_code,name,qr_token,created_at,updated_at) VALUES('RC-1','RC-1','تست','RCTOKEN1','2026-01-01','2026-01-01')");
+  mk.run();
+  const r = recodeItems(null, { 'RC-1': 'RC-2', 'NOPE': 'X', '30700': '30801' });
+  assert.deepEqual(r.changed.map((c) => [c.from, c.to]), [['RC-1', 'RC-2']]);
+  assert.equal(r.skipped.length, 2); // missing source, and a target that already exists
+  const row = db.prepare("SELECT code, sepidar_code FROM items WHERE code = 'RC-2'").get();
+  assert.equal(row.sepidar_code, 'RC-2');
+});
+
 test('users: last admin protected, temp password forces change', async () => {
   const admin = new Client();
   await admin.login('mokhtar');
