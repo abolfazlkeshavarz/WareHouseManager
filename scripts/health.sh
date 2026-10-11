@@ -23,7 +23,7 @@ ok()   { echo "  ${GREEN}[OK]${NC}   $1"; }
 bad()  { echo "  ${RED}[FAIL]${NC} $1"; failures=$((failures + 1)); }
 warn() { echo "  ${YELLOW}[WARN]${NC} $1"; warnings=$((warnings + 1)); }
 
-code_of() { curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$@" 2>/dev/null || echo 000; }
+code_of() { local c; c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@" 2>/dev/null)"; echo "${c:-000}"; }
 
 echo ""
 echo "Warehouse app health check"

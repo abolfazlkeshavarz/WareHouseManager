@@ -31,7 +31,8 @@ endif
 
 # ---------------------------------------------------------------- settings
 HTTP_PORT   ?= 8090
-API_URL     ?= http://127.0.0.1:$(HTTP_PORT)
+# empty = the scripts read HTTP_PORT from .env.prod themselves (bootstrap may have picked a port other than 8090)
+API_URL     ?=
 ENV_FILE    ?= .env.prod
 
 # Docker Desktop on Windows does not put docker on PATH for the non-login shell
@@ -174,14 +175,14 @@ deploy-check: ## Pre-flight checks before deploying
 	@bash scripts/deploy-check.sh
 
 health: ## Check the running instance (container + HTTP)
-	@API_URL="$(API_URL)" bash scripts/health.sh
+	@$(if $(API_URL),API_URL="$(API_URL)" )bash scripts/health.sh
 
 deploy-health: ## Check a deployed instance (HOST=https://your.domain)
 	@test -n "$(HOST)" || { echo "HOST is required: make deploy-health HOST=https://warehouse.example.com"; exit 1; }
 	@API_URL="$(HOST)" REMOTE=1 bash scripts/health.sh
 
 smoke: ## Read-only end-to-end test. API_URL=... [SMOKE_USER= SMOKE_PASSWORD=]
-	@API_URL="$(API_URL)" bash scripts/smoke-test.sh
+	@$(if $(API_URL),API_URL="$(API_URL)" )bash scripts/smoke-test.sh
 
 demo-data: ## Load demo data over the API. API_URL= ADMIN_USER= ADMIN_PASSWORD= [KEEPER_USER= KEEPER_PASSWORD=]
-	@API_URL="$(API_URL)" bash scripts/demo-data.sh
+	@$(if $(API_URL),API_URL="$(API_URL)" )bash scripts/demo-data.sh
