@@ -543,10 +543,24 @@ const MAX_BARCODE_LINES = 50000;
  *   1) an .xls that creates the document with its first item (template import: one row = one document),
  *   2) a TXT of barcodes (item codes) for every remaining unit, to be read by the document's barcode input.
  */
+/**
+ * Splits a document's items between the two files. Sepidar refuses a document without an item, so the creating .xls
+ * must hold one line; by default that line is ONE unit of the first item ('one'), and everything else — including the
+ * remaining units of that first item — goes into the barcode TXT. 'full' keeps the first item's whole quantity in the .xls.
+ */
+export function planBundle(rows, mode = 'one') {
+  const [first, ...rest] = rows;
+  const firstQty = mode === 'full' ? first.qty : 1;
+  const remainder = first.qty - firstQty > 0 ? [{ ...first, qty: first.qty - firstQty }] : [];
+  return { firstRow: { ...first, qty: firstQty }, txtRows: [...remainder, ...rest], first };
+}
+
 export async function buildBundle(info, rows, { docNo, date }) {
   if (!rows.length) throw new HttpError(404, 'قلمی برای این سند وجود ندارد.');
-  const [first, ...rest] = rows;
-  const xls = await renderSepidar(sepidarTable(info, [first], { docNo, date }), 'xls');
+  const mode = getSettings().sepidar_bundle_first || 'one';
+  const { firstRow, txtRows, first } = planBundle(rows, mode);
+  const rest = txtRows;
+  const xls = await renderSepidar(sepidarTable(info, [firstRow], { docNo, date }), 'xls');
   const units = rest.reduce((n, r) => n + r.qty, 0);
   const capped = rest.some((r) => r.qty > MAX_BARCODE_LINES);
   const name = (n) => `${n}-${info.kind}-${info.type}${info.dest ? `-${info.dest}` : ''}-شماره-${docNo}`;
@@ -556,7 +570,7 @@ export async function buildBundle(info, rows, { docNo, date }) {
     '',
     'مرحله ۱ — ساخت سند',
     `  فهرست ${info.kind} › دریافت اطلاعات › الگوی دریافت، فایل «${name('1')}.xls» را وارد کنید.`,
-    `  این فایل سند را با قلم اول می‌سازد: کد ${first.item_code} × ${first.qty}.`,
+    `  این فایل فقط سند را می‌سازد (سپیدار سند بدون قلم نمی‌پذیرد): کد ${first.item_code} × ${firstRow.qty}${mode === 'full' ? '' : ' (یک واحد؛ باقی با بارکد)'}.`,
     '',
     rest.length ? 'مرحله ۲ — افزودن بقیه‌ی اقلام با بارکد' : 'مرحله ۲ — لازم نیست (سند فقط یک قلم دارد)',
     ...(rest.length ? [

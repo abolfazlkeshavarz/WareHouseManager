@@ -158,6 +158,7 @@ export const DEFAULT_SETTINGS = {
   sepidar_titles: false,
   sepidar_layout: 'flat',
   sepidar_txt_header: 'none',
+  sepidar_bundle_first: 'one', // the creating .xls holds ONE unit of the first item; the barcode TXT holds the rest
   sepidar_items_titles: 'short', // the in-document import ignored the long "قلم خروج انبار …" titles
   sepidar_date_format: 'with_time', // what Sepidar's own export writes; the importer returned an empty date for the plain forms we tried
   sepidar_next_no: {},

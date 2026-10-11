@@ -250,11 +250,16 @@ test('full flow: opening stock → storekeeper request → approve → history �
     assert.equal(z.readUInt16LE(z.length - 22 + 10), 2);          // two entries
     assert.equal(itemsText([{ item_code: '9', qty: 3 }], 'repeat', 2).toString(), '9\r\n9\r\n'); // cap
     const rows = [{ item_code: '355', item_title: 'a', qty: 10 }, { item_code: '31400', item_title: 'b', qty: 3 }];
+    const { planBundle } = await import('../server/services/exports.js');
+    const plan = planBundle(rows, 'one');
+    assert.equal(plan.firstRow.qty, 1);                       // the creating .xls holds ONE unit of the first item
+    assert.deepEqual(plan.txtRows.map((r) => [r.item_code, r.qty]), [['355', 9], ['31400', 3]]); // the rest goes to the TXT
+    assert.equal(planBundle(rows, 'full').firstRow.qty, 10);
+    assert.deepEqual(planBundle([{ item_code: '1', qty: 1 }], 'one').txtRows, []); // single unit: no TXT at all
     const zip = await buildBundle(gi('consumption'), rows, { docNo: 990, date: '1405/07/19' });
     const text = zip.toString('latin1');
     assert.ok(text.includes('.xls') && text.includes('.txt'));
-    assert.ok(zip.includes(Buffer.from('31400\r\n31400\r\n31400\r\n'))); // 3 units = 3 lines
-    assert.ok(!zip.includes(Buffer.from('355\r\n')));                     // the first item goes into the .xls instead
+    assert.ok(zip.includes(Buffer.from('355\r\n'.repeat(9) + '31400\r\n31400\r\n31400\r\n'))); // 9 + 3 units = 12 lines
   }
 
   // items-only Excel for the in-document import: the item grid's columns

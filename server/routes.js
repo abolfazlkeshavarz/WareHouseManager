@@ -339,6 +339,11 @@ api.put('/settings', requireAdmin, (req, res) => {
     if (!['native', 'short'].includes(v)) throw new HttpError(400, 'قالب عنوان ستون‌ها نامعتبر است.');
     setSetting('sepidar_items_titles', v); changes.sepidar_items_titles = v;
   }
+  if (b.sepidar_bundle_first !== undefined) {
+    const v = String(b.sepidar_bundle_first);
+    if (!['one', 'full'].includes(v)) throw new HttpError(400, 'مقدار نامعتبر است.');
+    setSetting('sepidar_bundle_first', v); changes.sepidar_bundle_first = v;
+  }
   if (b.sepidar_txt_header !== undefined) {
     const v = String(b.sepidar_txt_header);
     if (!['none', 'latin', 'row', 'repeat', 'tab', 'space', 'semicolon'].includes(v)) throw new HttpError(400, 'قالب فایل متنی نامعتبر است.');
