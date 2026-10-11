@@ -198,12 +198,21 @@ test('full flow: opening stock → storekeeper request → approve → history �
   const XLSX = (await import('xlsx')).default;
   const sheet = XLSX.read(xlsBuf, { type: 'buffer' });
   const aoa = XLSX.utils.sheet_to_json(sheet.Sheets[sheet.SheetNames[0]], { header: 1 });
-  assert.deepEqual(aoa[0], ['خروج انبار نوع خروج', 'خروج انبار شماره', 'خروج انبار تاریخ', 'خروج انبار کد انبار',
-    'خروج انبار کد تحویل گیرنده', 'خروج انبار کد انبار مقصد', 'قلم خروج انبار کد', 'قلم خروج انبار واحد اصلی']);
+  const { SEPIDAR_COLUMN_DEFAULTS } = await import('../server/constants.js');
+  const colKeys = SEPIDAR_COLUMN_DEFAULTS.issue.map((c) => c.key);
+  assert.deepEqual(aoa[0], SEPIDAR_COLUMN_DEFAULTS.issue.map((c) => c.header));
   assert.equal(aoa.length, 3); // header + 2 items
-  // header values are repeated on every line; codes/dates are text, quantity is a number
-  assert.deepEqual(aoa[1], ['مصرف', 41, '1405/07/18', '1001', '1001', '', '30700', 30]);
-  assert.deepEqual(aoa[2].slice(1), [41, '1405/07/18', '1001', '1001', '', '30801', 10]);
+  // the document header is repeated on every row; everything is text except the quantity
+  const row = Object.fromEntries(colKeys.map((k, i) => [k, aoa[1][i]]));
+  assert.equal(row.number, '41');
+  assert.equal(row.date, '1405/07/18 12:00:00 ق.ظ');
+  assert.equal(row.warehouse, '1001');
+  assert.equal(row.warehouse_title, 'انبار مواد اوليه'); // Arabic letters, like Sepidar's data
+  assert.equal(row.party, '1001');
+  assert.equal(row.item_code, '30700');
+  assert.equal(row.qty, 30);
+  assert.equal(aoa[2][colKeys.indexOf('item_code')], '30801');
+  assert.equal(aoa[2][colKeys.indexOf('qty')], 10);
   // missing number / bad date are rejected before anything is marked as exported
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', date: '1405/07/18' })).status, 400);
   assert.equal((await admin.req('POST', '/api/export/sepidar', { group: 'consumption', doc_no: 5, date: 'x' })).status, 400);

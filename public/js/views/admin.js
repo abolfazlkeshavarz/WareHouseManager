@@ -131,7 +131,11 @@ export async function settingsView() {
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
   const mainWh = h('select', { class: 'input' },
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
-  const account = h('input', { class: 'input code', value: s.sepidar_account ?? '', maxlength: 30 });
+  const issuer = h('input', { class: 'input', value: s.sepidar_issuer ?? '', maxlength: 60 });
+  const accounts = {};
+  for (const [k, g] of Object.entries(groups)) {
+    if (g.doc === 'receipt') accounts[k] = h('input', { class: 'input code', value: s.sepidar_accounts?.[k] || g.account || '', maxlength: 30 });
+  }
   const party = {};
   for (const [k, g] of Object.entries(groups)) {
     party[k] = h('input', { class: 'input code', value: s.sepidar_party_codes?.[k] ?? g.party ?? '', maxlength: 30, placeholder: '—' });
@@ -170,7 +174,8 @@ export async function settingsView() {
       h('h2', null, 'فایل دریافت سپیدار — مقادیر پیش‌فرض'),
       h('div', { class: 'form-grid two' },
         ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
-        field('کد حساب معین رسیدها', account))),
+        field('نام «صادر کننده» در فایل', issuer, 'همان نام کاربری که در سپیدار وارد می‌شود، مثلاً «سرپرست»'),
+        ...Object.entries(accounts).map(([k, el]) => field(`کد حساب معین — ${groups[k].type}`, el)))),
     h('div', { class: 'card stack', id: 'sepidar-cols' },
       h('h2', null, 'ستون‌های فایل دریافت سپیدار'),
       h('div', { class: 'hint' }, 'سپیدار ردیف اول فایل را به‌عنوان عنوان ستون می‌خواند. عنوان‌ها باید با نام ستون‌های «الگوی دریافت رسید انبار / خروج انبار» (با گزینه‌ی «نام کامل») یکی باشند. اگر سپیدار ستونی را نشناخت، عنوان آن را اینجا اصلاح کنید.'),
@@ -186,7 +191,8 @@ export async function settingsView() {
           sepidar_enabled: sepOn.checked,
           sepidar_columns_v2: cols,
           sepidar_party_codes: Object.fromEntries(Object.entries(party).map(([k, el]) => [k, el.value])),
-          sepidar_account: account.value,
+          sepidar_issuer: issuer.value,
+          sepidar_accounts: Object.fromEntries(Object.entries(accounts).map(([k, el]) => [k, el.value])),
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);
             return i < 0 ? { code: l, title: l } : { code: l.slice(0, i), title: l.slice(i + 1).trim() };

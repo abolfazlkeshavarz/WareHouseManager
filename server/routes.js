@@ -327,9 +327,16 @@ api.put('/settings', requireAdmin, (req, res) => {
     for (const k of Object.keys(SEPIDAR_GROUPS)) codes[k] = String(b.sepidar_party_codes?.[k] ?? '').trim().slice(0, 30);
     setSetting('sepidar_party_codes', codes); changes.sepidar_party_codes = codes;
   }
-  if (b.sepidar_account !== undefined) {
-    const v = String(b.sepidar_account).trim().slice(0, 30);
-    setSetting('sepidar_account', v); changes.sepidar_account = v;
+  if (b.sepidar_accounts !== undefined) {
+    const acc = {};
+    for (const [k, g] of Object.entries(SEPIDAR_GROUPS)) {
+      if (g.doc === 'receipt') acc[k] = String(b.sepidar_accounts?.[k] ?? '').trim().slice(0, 30);
+    }
+    setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
+  }
+  if (b.sepidar_issuer !== undefined) {
+    const v = String(b.sepidar_issuer).trim().slice(0, 60);
+    if (v) { setSetting('sepidar_issuer', v); changes.sepidar_issuer = v; }
   }
   if (b.sepidar_warehouses !== undefined) {
     const list = (Array.isArray(b.sepidar_warehouses) ? b.sepidar_warehouses : [])

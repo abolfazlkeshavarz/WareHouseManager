@@ -34,15 +34,19 @@ export const STATUSES = {
 };
 
 // Sepidar document groups: each one is one Sepidar document (رسید انبار / خروج انبار) with its own import file.
-// doc: which Sepidar template (receipt/issue). party: default کد تحویل‌دهنده / تحویل‌گیرنده (editable in settings).
+//  doc        which Sepidar template (receipt / issue)
+//  type_code  value of the "نوع رسید / نوع" column. Receipt codes were read from your own export
+//             (1 = خرید داخلی, 2 = تولید, 3 = سایر); the issue codes are a guess (فروش 1, مصرف 2, سایر 3, انتقال 4).
+//  party      default کد تحویل‌دهنده / تحویل‌گیرنده (+ its title and internal id, copied from your export)
+//  account    default کد حساب معین (receipts)
 export const SEPIDAR_GROUPS = {
-  purchase: { doc: 'receipt', kind: 'رسید انبار', type: 'خرید (داخلی)', party: '60031' },
-  production: { doc: 'receipt', kind: 'رسید انبار', type: 'تولید', party: '1001' },
-  other_in: { doc: 'receipt', kind: 'رسید انبار', type: 'سایر', party: '60029' },
-  consumption: { doc: 'issue', kind: 'خروج انبار', type: 'مصرف', party: '1001' },
-  sale: { doc: 'issue', kind: 'خروج انبار', type: 'فروش', party: '' },
-  other_out: { doc: 'issue', kind: 'خروج انبار', type: 'سایر', party: '' },
-  transfer: { doc: 'issue', kind: 'خروج انبار', type: 'انتقال بین انبار', party: '' },
+  purchase: { doc: 'receipt', kind: 'رسید انبار', type: 'خرید (داخلی)', type_code: '1', party: '60031', party_title: 'خريد متفرقه', party_id: '223', account: '211001' },
+  production: { doc: 'receipt', kind: 'رسید انبار', type: 'تولید', type_code: '2', party: '1001', party_title: 'توليد', party_id: '93', account: '111601' },
+  other_in: { doc: 'receipt', kind: 'رسید انبار', type: 'سایر', type_code: '3', party: '60029', party_title: 'ساير انبار1404', party_id: '210', account: '211001' },
+  consumption: { doc: 'issue', kind: 'خروج انبار', type: 'مصرف', type_code: '2', party: '1001', party_title: 'توليد', party_id: '93', account: '' },
+  sale: { doc: 'issue', kind: 'خروج انبار', type: 'فروش', type_code: '1', party: '', party_title: '', party_id: '', account: '' },
+  other_out: { doc: 'issue', kind: 'خروج انبار', type: 'سایر', type_code: '3', party: '', party_title: '', party_id: '', account: '' },
+  transfer: { doc: 'issue', kind: 'خروج انبار', type: 'انتقال بین انبار', type_code: '4', party: '', party_title: '', party_id: '', account: '' },
 };
 
 export const DEFAULT_WAREHOUSES = [
@@ -51,30 +55,54 @@ export const DEFAULT_WAREHOUSES = [
   { code: '1004', title: 'انبار واسط ضایعات' },
 ];
 
-// Column titles of Sepidar's "الگوی دریافت" (import template), taken from the template dialogs. The import reads the
-// first row as the header, so these titles must match the template; they are editable in settings.
-// key = which value goes into the column.
+// Column titles of Sepidar's template export (file "الگو"): they use ARABIC letters (ي ك), so these literals must too.
+// `key` says which value goes into the column. The item columns (قلم ...) come last: one row per item, with the
+// document header repeated on every row; rows with the same number + warehouse form one document.
+// The receipt titles are copied from your file; the issue titles follow the same naming and still have to be
+// confirmed with an export of فهرست خروج انبار.
 export const SEPIDAR_COLUMN_DEFAULTS = {
   receipt: [
-    { key: 'purchase_kind', header: 'رسید انبار نوع خرید', enabled: true },
-    { key: 'type', header: 'رسید انبار نوع رسید', enabled: true },
-    { key: 'number', header: 'رسید انبار شماره', enabled: true },
-    { key: 'date', header: 'رسید انبار تاریخ', enabled: true },
-    { key: 'warehouse', header: 'رسید انبار کد انبار', enabled: true },
-    { key: 'party', header: 'رسید انبار کد تحویل دهنده', enabled: true },
-    { key: 'account', header: 'رسید انبار کد حساب معین', enabled: true },
-    { key: 'item_code', header: 'قلم رسید انبار کد', enabled: true },
-    { key: 'qty', header: 'قلم رسید انبار واحد اصلی', enabled: true },
+    { key: 'item_kind', header: 'نوع قلم', enabled: true },
+    { key: 'issuer', header: 'رسيد انبار صادر كننده', enabled: true },
+    { key: 'issuer2', header: 'رسيد انبار صادر كننده (2)', enabled: true },
+    { key: 'number', header: 'رسيد انبار شماره', enabled: true },
+    { key: 'date', header: 'رسيد انبار تاريخ', enabled: true },
+    { key: 'warehouse', header: 'رسيد انبار كد انبار', enabled: true },
+    { key: 'warehouse_title', header: 'رسيد انبار عنوان انبار', enabled: true },
+    { key: 'account', header: 'رسيد انبار كد حساب معين', enabled: true },
+    { key: 'party', header: 'رسيد انبار كد تحويل دهنده', enabled: true },
+    { key: 'party_id', header: 'رسيد انبار تحويل دهنده', enabled: true },
+    { key: 'src_wh', header: 'رسيد انبار كد انبار مبدا', enabled: true },
+    { key: 'src_wh_title', header: 'رسيد انبار عنوان انبار مبدا', enabled: true },
+    { key: 'transfer_no', header: 'رسيد انبار شماره خروج انتقالي مرتبط', enabled: true },
+    { key: 'type', header: 'رسيد انبار نوع رسيد', enabled: true },
+    { key: 'acct_doc_no', header: 'رسيد انبار شماره سند حسابداري', enabled: true },
+    { key: 'acct_doc_date', header: 'رسيد انبار تاريخ سند حسابداري', enabled: true },
+    { key: 'net', header: 'رسيد انبار خالص', enabled: true },
+    { key: 'carrier', header: 'رسيد انبار حمل كننده', enabled: true },
+    { key: 'carrier_code', header: 'رسيد انبار كد حمل كننده', enabled: true },
+    { key: 'notes', header: 'رسيد انبار توضيحات', enabled: true },
+    { key: 'item_code', header: 'قلم رسيد انبار كد', enabled: true },
+    { key: 'qty', header: 'قلم رسيد انبار واحد اصلي', enabled: true },
   ],
   issue: [
-    { key: 'type', header: 'خروج انبار نوع خروج', enabled: true },
+    { key: 'item_kind', header: 'نوع قلم', enabled: true },
+    { key: 'issuer', header: 'خروج انبار صادر كننده', enabled: true },
+    { key: 'issuer2', header: 'خروج انبار صادر كننده (2)', enabled: true },
     { key: 'number', header: 'خروج انبار شماره', enabled: true },
-    { key: 'date', header: 'خروج انبار تاریخ', enabled: true },
-    { key: 'warehouse', header: 'خروج انبار کد انبار', enabled: true },
-    { key: 'party', header: 'خروج انبار کد تحویل گیرنده', enabled: true },
-    { key: 'dest', header: 'خروج انبار کد انبار مقصد', enabled: true },
-    { key: 'item_code', header: 'قلم خروج انبار کد', enabled: true },
-    { key: 'qty', header: 'قلم خروج انبار واحد اصلی', enabled: true },
+    { key: 'date', header: 'خروج انبار تاريخ', enabled: true },
+    { key: 'warehouse', header: 'خروج انبار كد انبار', enabled: true },
+    { key: 'warehouse_title', header: 'خروج انبار عنوان انبار', enabled: true },
+    { key: 'party', header: 'خروج انبار كد تحويل گيرنده', enabled: true },
+    { key: 'party_id', header: 'خروج انبار تحويل گيرنده', enabled: true },
+    { key: 'dest', header: 'خروج انبار كد انبار مقصد', enabled: true },
+    { key: 'dest_title', header: 'خروج انبار عنوان انبار مقصد', enabled: true },
+    { key: 'type', header: 'خروج انبار نوع', enabled: true },
+    { key: 'acct_doc_no', header: 'خروج انبار شماره سند حسابداري', enabled: true },
+    { key: 'acct_doc_date', header: 'خروج انبار تاريخ سند حسابداري', enabled: true },
+    { key: 'notes', header: 'خروج انبار توضيحات', enabled: true },
+    { key: 'item_code', header: 'قلم خروج انبار كد', enabled: true },
+    { key: 'qty', header: 'قلم خروج انبار واحد اصلي', enabled: true },
   ],
 };
 
@@ -85,7 +113,8 @@ export const DEFAULT_SETTINGS = {
   sepidar_enabled: false, // Sepidar import files are not finished yet (needs the real import template)
   sepidar_columns_v2: SEPIDAR_COLUMN_DEFAULTS,
   sepidar_party_codes: {},
-  sepidar_account: '211001',
+  sepidar_accounts: {},
+  sepidar_issuer: 'سرپرست',
   sepidar_next_no: {},
   sepidar_warehouses: DEFAULT_WAREHOUSES,
   sepidar_main_warehouse: '1001',

@@ -220,21 +220,51 @@ function columnsFor(doc) {
   return cols.length ? cols : defaults;
 }
 
-/** One row per line; the document header values are repeated on every row (that is how Sepidar's template imports). */
-function sepidarTable(info, rows, { docNo, date }) {
+/** Sepidar stores Arabic letters; the app types Persian ones. Convert text values so they match its data. */
+const arabic = (t) => String(t ?? '').replace(/ی/g, 'ي').replace(/ک/g, 'ك');
+
+/**
+ * One row per item; the document header is repeated on every row (that is how Sepidar's template export/import
+ * works: rows with the same number + warehouse are one document). Every cell is text, as in Sepidar's own file.
+ */
+export function sepidarTable(info, rows, { docNo, date }) {
   const s = getSettings();
   const cols = columnsFor(info.doc);
+  const wh = s.sepidar_warehouses.find((w) => w.code === info.warehouse);
+  const dest = s.sepidar_warehouses.find((w) => w.code === info.dest);
+  const g = SEPIDAR_GROUPS[info.base];
+  const sameAsDefault = info.party === g.party;
+  const isPurchase = info.base === 'purchase';
+  const issuer = arabic(s.sepidar_issuer || 'سرپرست');
   const header = {
-    purchase_kind: info.base === 'purchase' ? 'داخلی' : '',
-    type: info.type,
-    number: docNo,
-    date,
+    item_kind: '',
+    issuer,
+    issuer2: issuer,
+    number: String(docNo),
+    date: `${date} 12:00:00 ق.ظ`,
     warehouse: info.warehouse,
+    warehouse_title: arabic(wh?.title ?? ''),
+    account: s.sepidar_accounts?.[info.base] ?? g.account,
     party: info.party,
-    account: s.sepidar_account || '',
+    party_id: sameAsDefault ? g.party_id : '',
+    src_wh: '',
+    src_wh_title: '',
+    transfer_no: '',
+    type: g.type_code,
+    acct_doc_no: '',
+    acct_doc_date: '',
+    net: 0,
+    carrier: isPurchase && sameAsDefault ? g.party_id : '',
+    carrier_code: isPurchase ? info.party : '',
+    notes: '',
     dest: info.dest,
+    dest_title: arabic(dest?.title ?? ''),
   };
-  return [cols.map((c) => c.header), ...rows.map((r) => cols.map((c) => (c.key in header ? header[c.key] : r[c.key]) ?? ''))];
+  const line = (r) => ({ item_code: String(r.item_code), qty: r.qty });
+  return [cols.map((c) => c.header), ...rows.map((r) => {
+    const l = line(r);
+    return cols.map((c) => (c.key in header ? header[c.key] : l[c.key]) ?? '');
+  })];
 }
 
 function checkHeader({ doc_no, date }) {
@@ -276,7 +306,7 @@ export async function regenerateSepidarBatch(id, format) {
   return renderSepidar(sepidarTable(info, sepidarRows(ids), { docNo: b.doc_no, date: b.doc_date }), format);
 }
 
-async function renderSepidar(table, format) {
+export async function renderSepidar(table, format) {
   if (format === 'csv') {
     const esc = (v) => {
       const s = String(v ?? '');
@@ -293,8 +323,8 @@ async function renderSepidar(table, format) {
   }
   // default: real Excel 97-2003 (.xls) — the only type Sepidar's file picker offers.
   // Dates and codes are written as text (so "1405/07/18" and "0123" are never reinterpreted).
-  const ws = XLSX.utils.aoa_to_sheet(table.map((r, i) => r.map((v) => (i === 0 || typeof v === 'number' ? v : String(v)))));
-  ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, String(h).length + 2) }));
+  const ws = XLSX.utils.aoa_to_sheet(table.map((r) => r.map((v) => (typeof v === 'number' ? v : String(v)))));
+  ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, Math.min(String(h).length + 2, 40)) }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   return XLSX.write(wb, { bookType: 'biff8', type: 'buffer' });
