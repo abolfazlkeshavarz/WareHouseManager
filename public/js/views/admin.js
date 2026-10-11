@@ -141,9 +141,9 @@ export async function settingsView() {
     ['per_row', 'هر قلم یک سند جدا (شماره‌ی پشت‌سرهم)'],
   ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_layout || 'flat') }, l)));
   const itemsStyle = h('select', { class: 'input' }, ...[
+    ['short', 'عنوان کوتاه مثل جدول سند: «رديف»، «كد»، «عنوان»، «واحد اصلي» … (پیش‌فرض)'],
     ['native', 'عنوان کامل مثل خروجی سپیدار: «قلم خروج انبار رديف»، «قلم خروج انبار كد» …'],
-    ['short', 'عنوان کوتاه مثل جدول سند: «رديف»، «كد»، «عنوان»، «واحد اصلي» …'],
-  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_items_titles || 'native') }, l)));
+  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_items_titles || 'short') }, l)));
   const txtMode = h('select', { class: 'input' }, ...[
     ['none', 'بدون عنوان: 31400,100'],
     ['latin', 'با عنوان انگلیسی در خط اول: Code,Quantity'],

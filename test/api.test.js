@@ -250,7 +250,8 @@ test('full flow: opening stock → storekeeper request → approve → history �
     assert.equal(t[0][1], 'قلم خروج انبار كد');
     assert.deepEqual(t[1], ['1', '31400', '', 100, '111601', '', '', '', '']);
     const full = itemsTable(r, gi('consumption'), { style: 'short', titles: true });
-    assert.deepEqual(full[0], ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان', 'في', 'مبلغ', 'توضيحات']);
+    assert.deepEqual(full[0], ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان1', 'في', 'مبلغ', 'توضيحات']);
+    assert.equal(new Set(full[0]).size, full[0].length); // no duplicate column names (DuplicateNameException)
     assert.equal(full[1][2], 'كاور موتور (بالا)');
     assert.equal(full[1][5], 'كاردرجريان ساخت');
     const rec = itemsTable(r, gi('production'), { style: 'native', titles: false });

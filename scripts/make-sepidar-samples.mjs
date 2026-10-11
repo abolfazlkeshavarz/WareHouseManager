@@ -90,12 +90,17 @@ fs.mkdirSync(path.join(out, 'items-xls'), { recursive: true });
     console.log('items-xls', name, table.length - 1, 'items,', table[0].length, 'columns');
   };
   const issue = sepidarGroupInfo('consumption');
-  write('I1-خروج-عنوان-کامل-بدون-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'native', titles: false }));
-  write('I2-خروج-عنوان-کوتاه-بدون-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'short', titles: false }));
-  write('I3-خروج-عنوان-کامل-با-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'native', titles: true }));
-  write('I4-خروج-عنوان-کوتاه-با-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'short', titles: true }));
-  write('I5-فقط-کد-و-مقدار.xls', itemsTable(ROWS, issue, { style: 'short', titles: false }).map((r) => [r[1], r[3]]));
-  write('R1-رسید-عنوان-کامل-بدون-نام-کالا.xls', itemsTable(ROWS, sepidarGroupInfo('production'), { style: 'native', titles: false }));
+  const short = itemsTable(ROWS, issue, { style: 'short', titles: false });
+  const shortNames = itemsTable(ROWS, issue, { style: 'short', titles: true });
+  const col = (t, idxs) => t.map((r) => idxs.map((i) => r[i]));
+  // grid captions; the 2nd "عنوان" is "عنوان1" (a duplicate name made the importer fail)
+  write('I1-خروج-همه-ستون‌ها-بدون-نام-کالا.xls', short);
+  write('I2-خروج-همه-ستون‌ها-با-نام-کالا.xls', shortNames);
+  write('I3-خروج-ردیف-کد-واحد-اصلی-حساب.xls', col(short, [0, 1, 3, 4]));
+  write('I4-خروج-ردیف-کد-عنوان-واحد-اصلی.xls', col(shortNames, [0, 1, 2, 3]));
+  write('I5-خروج-فقط-کد-و-واحد-اصلی.xls', col(short, [1, 3]));
+  write('N1-خروج-عنوان-کامل-(قبلاً-هیچ-اتفاقی-نیفتاد).xls', itemsTable(ROWS, issue, { style: 'native', titles: false }));
+  write('R1-رسید-ستون‌های-جدول-بدون-نام-کالا.xls', itemsTable(ROWS, sepidarGroupInfo('production'), { style: 'short', titles: false }));
 }
 
 // Items-only comma-separated text files, for importing items INTO an existing document.

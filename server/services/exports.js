@@ -404,7 +404,9 @@ const ITEM_GRID = {
     keys: ['row_no', 'item_code', 'item_title', 'qty', 'line_account', 'line_account_title', 'price', 'amount', 'line_notes'],
     native: ['قلم خروج انبار رديف', 'قلم خروج انبار كد', 'قلم خروج انبار عنوان', 'قلم خروج انبار واحد اصلي', 'قلم خروج انبار كد حساب معين',
       'قلم خروج انبار عنوان1', 'قلم خروج انبار في', 'قلم خروج انبار مبلغ', 'قلم خروج انبار توضيحات'],
-    short: ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان', 'في', 'مبلغ', 'توضيحات'],
+    // the second "عنوان" is "عنوان1", as in Sepidar's own export: the importer builds a DataTable from the header
+    // row and rejects two columns with the same name (DuplicateNameException)
+    short: ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان1', 'في', 'مبلغ', 'توضيحات'],
   },
   receipt: {
     keys: ['row_no', 'base', 'item_code', 'item_title', 'qty', 'price', 'line_total', 'line_notes'],
@@ -419,7 +421,7 @@ export function itemsTable(rows, info, opts = {}) {
   const g = SEPIDAR_GROUPS[info?.base] ?? {};
   const grid = ITEM_GRID[g.doc === 'receipt' ? 'receipt' : 'issue'];
   const titles = opts.titles ?? !!s.sepidar_titles;
-  const style = opts.style ?? (s.sepidar_items_titles || 'native');
+  const style = opts.style ?? (s.sepidar_items_titles || 'short');
   const account = s.sepidar_accounts?.[info?.base] ?? g.line_account ?? '';
   const body = rows.map((r, i) => {
     const v = {
