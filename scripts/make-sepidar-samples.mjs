@@ -75,23 +75,27 @@ for (const [name, layout, no] of layouts) {
 }
 setSetting('sepidar_layout', 'flat');
 
-// Items-only Excel files (.xls) for adding items to a document that already exists (no header).
+// Items-only Excel files (.xls) for adding items to a document that already exists (no header):
+// exactly the columns of the document's item grid.
 const { itemsTable } = await import('../server/services/exports.js');
 fs.mkdirSync(path.join(out, 'items-xls'), { recursive: true });
 {
   const XLSX = (await import('xlsx')).default;
   const write = (name, table) => {
     const ws = XLSX.utils.aoa_to_sheet(table.map((r) => r.map((v) => (typeof v === 'number' ? v : String(v)))));
-    ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, String(h).length + 2) }));
+    ws['!cols'] = table[0].map((h) => ({ wch: Math.max(12, Math.min(String(h).length + 2, 34)) }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
     fs.writeFileSync(path.join(out, 'items-xls', name), XLSX.write(wb, { bookType: 'biff8', type: 'buffer' }));
-    console.log('items-xls', name, table.length - 1, 'items');
+    console.log('items-xls', name, table.length - 1, 'items,', table[0].length, 'columns');
   };
-  const full = itemsTable(ROWS, sepidarGroupInfo('consumption'));
-  write('I1-اقلام-خروج-مصرف.xls', full);
-  write('I2-فقط-کد-و-مقدار.xls', full.map((r) => [r[1], r[3]]));
-  write('I3-ردیف-کد-مقدار.xls', full.map((r) => [r[0], r[1], r[3]]));
+  const issue = sepidarGroupInfo('consumption');
+  write('I1-خروج-عنوان-کامل-بدون-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'native', titles: false }));
+  write('I2-خروج-عنوان-کوتاه-بدون-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'short', titles: false }));
+  write('I3-خروج-عنوان-کامل-با-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'native', titles: true }));
+  write('I4-خروج-عنوان-کوتاه-با-نام-کالا.xls', itemsTable(ROWS, issue, { style: 'short', titles: true }));
+  write('I5-فقط-کد-و-مقدار.xls', itemsTable(ROWS, issue, { style: 'short', titles: false }).map((r) => [r[1], r[3]]));
+  write('R1-رسید-عنوان-کامل-بدون-نام-کالا.xls', itemsTable(ROWS, sepidarGroupInfo('production'), { style: 'native', titles: false }));
 }
 
 // Items-only comma-separated text files, for importing items INTO an existing document.

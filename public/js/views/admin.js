@@ -140,6 +140,10 @@ export async function settingsView() {
     ['header_row_repeat', 'یک ردیف فقط سربرگ، سپس اقلام با سربرگ تکراری'],
     ['per_row', 'هر قلم یک سند جدا (شماره‌ی پشت‌سرهم)'],
   ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_layout || 'flat') }, l)));
+  const itemsStyle = h('select', { class: 'input' }, ...[
+    ['native', 'عنوان کامل مثل خروجی سپیدار: «قلم خروج انبار رديف»، «قلم خروج انبار كد» …'],
+    ['short', 'عنوان کوتاه مثل جدول سند: «رديف»، «كد»، «عنوان»، «واحد اصلي» …'],
+  ].map(([v, l]) => h('option', { value: v, selected: v === (s.sepidar_items_titles || 'native') }, l)));
   const txtMode = h('select', { class: 'input' }, ...[
     ['none', 'بدون عنوان: 31400,100'],
     ['latin', 'با عنوان انگلیسی در خط اول: Code,Quantity'],
@@ -191,6 +195,7 @@ export async function settingsView() {
       h('div', { class: 'form-grid two' },
         ...Object.entries(groups).map(([k, g]) => field(`${g.kind} › ${g.type} — کد ${g.doc === 'receipt' ? 'تحویل‌دهنده' : 'تحویل‌گیرنده'}`, party[k])),
         h('label', { class: 'row', style: { gap: '12px' } }, titles, h('span', null, 'پر کردن ستون‌های «عنوان» (انبار، قلم، حساب…) — معمولاً باید خاموش باشد')),
+        field('عنوان ستون‌های فایل اقلام (Excel)', itemsStyle, 'ستون‌ها همان ستون‌های جدول اقلام سند هستند'),
         field('قالب فایل TXT اقلام', txtMode, 'فایل فقط شامل کد کالا و تعداد است (بدون BOM و فقط حروف لاتین/عدد)'),
         field('چیدمان اقلام در فایل', layout, 'سپیدار هر ردیف را یک سند می‌گیرد؛ اگر اقلام یک سند را یکی نکرد، چیدمان دیگر را امتحان کنید'),
         field('قالب تاریخ در فایل', dateFmt, 'اگر سپیدار روی ستون تاریخ خطا داد، قالب دیگر را امتحان کنید'),
@@ -216,6 +221,7 @@ export async function settingsView() {
           sepidar_date_format: dateFmt.value,
           sepidar_layout: layout.value,
           sepidar_txt_header: txtMode.value,
+          sepidar_items_titles: itemsStyle.value,
           sepidar_accounts: Object.fromEntries(Object.entries(accounts).map(([k, el]) => [k, el.value])),
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);

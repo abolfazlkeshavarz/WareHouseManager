@@ -393,14 +393,51 @@ export function itemsText(rows, mode = 'none') {
 
 /**
  * Items-only Excel (.xls) for the "add items from Excel" import INSIDE an already created document: no document header,
- * just what the document's item grid holds. Arabic letters in the titles, text cells except the quantity.
+ * exactly the columns of the document's item grid (seen in the خروج / رسید form):
+ *   خروج: ردیف، کد، عنوان، واحد اصلی، کد حساب معین، عنوان (حساب)، فی، مبلغ، توضیحات
+ *   رسید: ردیف، مبنا، کد، عنوان، واحد اصلی، فی، کل، توضیحات
+ * titles: 'native' = "قلم خروج انبار رديف" (what Sepidar's export writes), 'short' = the grid's own captions.
+ * The item/account titles are display-only, so they stay blank unless titles are switched on in settings.
  */
-export function itemsTable(rows, info) {
+const ITEM_GRID = {
+  issue: {
+    keys: ['row_no', 'item_code', 'item_title', 'qty', 'line_account', 'line_account_title', 'price', 'amount', 'line_notes'],
+    native: ['قلم خروج انبار رديف', 'قلم خروج انبار كد', 'قلم خروج انبار عنوان', 'قلم خروج انبار واحد اصلي', 'قلم خروج انبار كد حساب معين',
+      'قلم خروج انبار عنوان1', 'قلم خروج انبار في', 'قلم خروج انبار مبلغ', 'قلم خروج انبار توضيحات'],
+    short: ['رديف', 'كد', 'عنوان', 'واحد اصلي', 'كد حساب معين', 'عنوان', 'في', 'مبلغ', 'توضيحات'],
+  },
+  receipt: {
+    keys: ['row_no', 'base', 'item_code', 'item_title', 'qty', 'price', 'line_total', 'line_notes'],
+    native: ['قلم رسيد انبار رديف', 'قلم رسيد انبار مبنا', 'قلم رسيد انبار كد', 'قلم رسيد انبار عنوان', 'قلم رسيد انبار واحد اصلي',
+      'قلم رسيد انبار في', 'قلم رسيد انبار كل', 'قلم رسيد انبار توضيحات'],
+    short: ['رديف', 'مبنا', 'كد', 'عنوان', 'واحد اصلي', 'في', 'كل', 'توضيحات'],
+  },
+};
+
+export function itemsTable(rows, info, opts = {}) {
+  const s = getSettings();
   const g = SEPIDAR_GROUPS[info?.base] ?? {};
-  const settings = getSettings();
-  const account = settings.sepidar_accounts?.[info?.base] ?? g.line_account ?? '';
-  const head = ['رديف', 'كد كالا', 'عنوان كالا', 'مقدار', 'كد حساب معين', 'توضيحات'];
-  return [head, ...rows.map((r, i) => [String(i + 1), String(r.item_code), arabic(r.item_title), r.qty, account, ''])];
+  const grid = ITEM_GRID[g.doc === 'receipt' ? 'receipt' : 'issue'];
+  const titles = opts.titles ?? !!s.sepidar_titles;
+  const style = opts.style ?? (s.sepidar_items_titles || 'native');
+  const account = s.sepidar_accounts?.[info?.base] ?? g.line_account ?? '';
+  const body = rows.map((r, i) => {
+    const v = {
+      row_no: String(i + 1),
+      base: '',
+      item_code: String(r.item_code),
+      item_title: titles ? arabic(r.item_title) : '',
+      qty: r.qty,
+      line_account: account,
+      line_account_title: titles && account ? arabic(g.line_account_title ?? '') : '',
+      price: '',
+      amount: '',
+      line_total: '',
+      line_notes: '',
+    };
+    return grid.keys.map((k) => v[k]);
+  });
+  return [grid[style] ?? grid.native, ...body];
 }
 
 export async function renderSepidar(table, format, rows, info) {

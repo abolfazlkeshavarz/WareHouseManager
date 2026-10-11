@@ -334,6 +334,11 @@ api.put('/settings', requireAdmin, (req, res) => {
     }
     setSetting('sepidar_accounts', acc); changes.sepidar_accounts = acc;
   }
+  if (b.sepidar_items_titles !== undefined) {
+    const v = String(b.sepidar_items_titles);
+    if (!['native', 'short'].includes(v)) throw new HttpError(400, 'قالب عنوان ستون‌ها نامعتبر است.');
+    setSetting('sepidar_items_titles', v); changes.sepidar_items_titles = v;
+  }
   if (b.sepidar_txt_header !== undefined) {
     const v = String(b.sepidar_txt_header);
     if (!['none', 'latin', 'row'].includes(v)) throw new HttpError(400, 'قالب فایل متنی نامعتبر است.');
