@@ -26,6 +26,7 @@ export async function moreView() {
       menuRow('#/settings', 'sliders', 'تنظیمات', 'تایید درخواست‌ها، سپیدار'),
       menuRow('#/audit', 'shield', 'گزارش ممیزی', 'ثبت تمام تغییرات سامانه'));
   }
+  list.prepend(menuRow('#/worker-balance', 'users', 'مانده نزد کارگران', 'هر کارگر چه قطعه‌ای و چند عدد در دست دارد'));
   list.append(menuRow('#/account', 'user', 'حساب کاربری', 'تغییر گذرواژه'));
   body.append(list);
   body.append(h('button', { class: 'btn secondary block', onClick: logout }, icon('logout'), 'خروج از حساب'));

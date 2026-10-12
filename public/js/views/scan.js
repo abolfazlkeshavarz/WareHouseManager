@@ -32,6 +32,13 @@ export async function scanView({ query }) {
     // keep the in-progress document; the user can switch manually
   }
 
+  // coming from «مانده نزد کارگران»: start a delivery / return for that worker (only when no document is in progress)
+  if (query.worker && !cart.lines.length) {
+    if (['in', 'out'].includes(query.mode)) cart = emptyCart(query.mode);
+    cart.worker_name = String(query.worker).slice(0, 80);
+    saveCart(cart);
+  }
+
   let workers = [];
   try { workers = (await api.get('/api/workers')).workers.filter((w) => w.active); } catch { /* optional */ }
 

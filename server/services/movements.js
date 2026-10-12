@@ -47,3 +47,38 @@ export function queryMovements(f = {}, { limit = 100, offset = 0, order = 'DESC'
   if (limit != null) { sql += ' LIMIT ? OFFSET ?'; args.push(limit, offset); }
   return { total, summary, rows: db.prepare(sql).all(...args) };
 }
+
+/**
+ * What each worker still holds: approved «تحویل به کارگر» minus «بازگشت از کارگر», grouped by worker name and by part
+ * (variants of one part number count together, because a worker often takes the raw part and returns the assembled one).
+ */
+export function workerBalances() {
+  const rows = db.prepare(`
+    SELECT d.worker_name AS worker, i.id AS item_id, i.code, i.part_no, i.name, i.variant, i.unit, i.image,
+           SUM(CASE WHEN d.reason = 'to_worker' THEN l.qty ELSE 0 END) AS given,
+           SUM(CASE WHEN d.reason = 'return_from_worker' THEN l.qty ELSE 0 END) AS returned,
+           MAX(COALESCE(d.decided_at, d.created_at)) AS last_at
+    FROM document_lines l JOIN documents d ON d.id = l.document_id JOIN items i ON i.id = l.item_id
+    WHERE d.status = 'approved' AND d.reason IN ('to_worker', 'return_from_worker') AND d.worker_name <> ''
+    GROUP BY d.worker_name, i.id ORDER BY i.row_no, i.code`).all();
+  const workers = new Map();
+  for (const r of rows) {
+    let w = workers.get(r.worker);
+    if (!w) workers.set(r.worker, w = { name: r.worker, given: 0, returned: 0, holding: 0, last_at: r.last_at, parts: new Map() });
+    const key = r.part_no ? `p:${r.part_no}:${r.name}` : `i:${r.item_id}`;
+    let p = w.parts.get(key);
+    if (!p) w.parts.set(key, p = { part_no: r.part_no || '', name: r.name, unit: r.unit, image: r.image, given: 0, returned: 0, balance: 0, variants: [] });
+    p.given += r.given; p.returned += r.returned;
+    p.variants.push({ item_id: r.item_id, code: r.code, variant: r.variant, given: r.given, returned: r.returned });
+    w.given += r.given; w.returned += r.returned;
+    if (r.last_at > w.last_at) w.last_at = r.last_at;
+  }
+  const out = [];
+  for (const w of workers.values()) {
+    const parts = [...w.parts.values()];
+    for (const p of parts) { p.balance = p.given - p.returned; if (p.balance > 0) w.holding += p.balance; }
+    parts.sort((a, b) => b.balance - a.balance);
+    out.push({ ...w, parts });
+  }
+  return out.sort((a, b) => b.holding - a.holding || a.name.localeCompare(b.name, 'fa'));
+}

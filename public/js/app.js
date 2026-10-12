@@ -10,6 +10,7 @@ import { reportsView } from './views/reports.js';
 import { moreView, accountView } from './views/more.js';
 import { usersView, workersView, settingsView, auditView } from './views/admin.js';
 import { labelsView, importView } from './views/labels.js';
+import { balanceView } from './views/balance.js';
 
 const app = document.getElementById('app');
 
@@ -28,6 +29,7 @@ const ROUTES = [
   ['/account', accountView],
   ['/users', usersView, true],
   ['/workers', workersView, true],
+  ['/worker-balance', balanceView],
   ['/settings', settingsView, true],
   ['/audit', auditView, true],
   ['/labels', labelsView, true],
@@ -79,7 +81,7 @@ const SIDE_EXTRA = [
 
 function isActive(item, path) {
   if (item.exact) return path === item.path;
-  if (item.path === '/more') return ['/more', '/account', '/users', '/workers', '/settings', '/audit', '/labels', '/import', '/reports'].includes(path);
+  if (item.path === '/more') return ['/more', '/account', '/users', '/workers', '/worker-balance', '/settings', '/audit', '/labels', '/import', '/reports'].includes(path);
   return path === item.path || path.startsWith(item.path + '/');
 }
 

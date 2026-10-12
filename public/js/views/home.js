@@ -40,6 +40,7 @@ export async function homeView() {
   body.append(h('div', { class: 'row', style: { gap: '10px' } },
     h('a', { class: 'btn out grow', href: '#/scan?mode=out' }, icon('outbox'), 'ثبت خروج'),
     h('a', { class: 'btn in grow', href: '#/scan?mode=in' }, icon('inbox'), 'ثبت ورود')));
+  body.append(h('a', { class: 'btn secondary block', href: '#/worker-balance' }, icon('users'), 'مانده نزد کارگران'));
 
   body.append(h('div', { class: 'stat-grid' },
     h('div', { class: 'card stat' }, h('b', null, fa(s.totals.items)), h('span', null, 'تعداد اقلام فعال')),

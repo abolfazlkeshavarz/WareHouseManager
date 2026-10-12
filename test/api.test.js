@@ -387,6 +387,27 @@ test('workers: delete removes from the list, documents keep the name', async () 
   assert.equal((await admin.req('POST', `/api/workers/${w.id}/delete`)).status, 404);
 });
 
+test('worker balance: delivered minus returned per worker and part (variants together)', async () => {
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const items = (await admin.req('GET', '/api/items')).json.items;
+  const raw = items.find((i) => i.code === '30900');
+  const sib = items.find((i) => i.part_no === raw.part_no && i.name === raw.name && i.id !== raw.id);
+  const other = items.find((i) => i.code === '32000');
+  const doc = (direction, reason, worker_name, lines) => admin.req('POST', '/api/documents', { direction, reason, worker_name, lines });
+  assert.equal((await doc('in', 'other_in', '', [{ item_id: raw.id, qty: 50 }, { item_id: other.id, qty: 10 }])).status, 201);
+  assert.equal((await doc('out', 'to_worker', 'کارگر مانده', [{ item_id: raw.id, qty: 20 }, { item_id: other.id, qty: 4 }])).status, 201);
+  assert.equal((await doc('in', 'return_from_worker', 'کارگر مانده', [{ item_id: (sib || raw).id, qty: 15 }])).status, 201);
+  assert.equal((await doc('in', 'return_from_worker', 'کارگر مانده', [{ item_id: other.id, qty: 4 }])).status, 201);
+  const keeper = new Client();
+  await keeper.login('anbardar');
+  const w = (await keeper.req('GET', '/api/worker-balance')).json.workers.find((x) => x.name === 'کارگر مانده');
+  assert.deepEqual([w.given, w.returned, w.holding], [24, 19, 5]);
+  const part = w.parts.find((p) => p.name === raw.name);
+  assert.deepEqual([part.given, part.returned, part.balance], [20, 15, 5]);
+  assert.equal(w.parts.find((p) => p.name === other.name).balance, 0);
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();

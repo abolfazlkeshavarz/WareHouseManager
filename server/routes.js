@@ -12,7 +12,7 @@ import {
 import {
   listItems, getItem, lookupItem, createItem, updateItem, setItemActive, saveItemImage, importItems, itemTemplate, itemWithStats,
 } from './services/items.js';
-import { queryMovements } from './services/movements.js';
+import { queryMovements, workerBalances } from './services/movements.js';
 import {
   buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile, documentBundle,
 } from './services/exports.js';
@@ -215,6 +215,10 @@ api.get('/movements', (req, res) => {
 });
 
 // ---------------- workers ----------------
+api.get('/worker-balance', (_req, res) => {
+  res.json({ workers: workerBalances() });
+});
+
 api.get('/workers', (_req, res) => {
   res.json({ workers: db.prepare('SELECT * FROM workers ORDER BY active DESC, name').all() });
 });
