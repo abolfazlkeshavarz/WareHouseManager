@@ -6,6 +6,7 @@ import http from 'node:http';
 import { db, ROOT, DATA_DIR, UPLOAD_DIR, seedUsersIfEmpty, seedItemsIfEmpty } from './db.js';
 import { sessionMiddleware, csrfGuard, requirePasswordChanged, requireAuth, HttpError } from './auth.js';
 import { api } from './routes.js';
+import { versionInfo } from './services/updater.js';
 
 const PORT = process.env.PORT !== undefined ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -45,7 +46,7 @@ app.get('/health', (_req, res) => {
   try {
     db.prepare('SELECT 1').get();
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', ...versionInfo() });
   } catch {
     res.status(503).json({ status: 'db_unavailable' });
   }

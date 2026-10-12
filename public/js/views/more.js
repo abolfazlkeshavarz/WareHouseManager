@@ -31,6 +31,8 @@ export async function moreView() {
   list.append(menuRow('#/account', 'user', 'حساب کاربری', 'تغییر گذرواژه'));
   body.append(list);
   body.append(h('button', { class: 'btn secondary block', onClick: logout }, icon('logout'), 'خروج از حساب'));
+  const v = store.meta.app;
+  if (v) body.append(h('div', { class: 'muted small center ltr' }, `v${v.version}${v.commit ? ' · ' + v.commit : ''}`));
   return { title: 'بیشتر', body };
 }
 

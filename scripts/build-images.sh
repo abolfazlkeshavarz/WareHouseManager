@@ -25,6 +25,8 @@ echo "==> Building ${IMAGE} for ${PLATFORM}"
 DOCKER_DEFAULT_PLATFORM="$PLATFORM" "$DOCKER" build \
   -t "$IMAGE" \
   --build-arg "VERSION=${VERSION}" \
+  --build-arg "GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+  --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   .
 
 echo ""

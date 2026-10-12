@@ -35,6 +35,10 @@ HTTP_PORT   ?= 8090
 API_URL     ?=
 ENV_FILE    ?= .env.prod
 
+# Baked into the image so the app can show which version is running.
+export GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+export BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
 # Docker Desktop on Windows does not put docker on PATH for the non-login shell
 # make spawns; resolve it with $(wildcard) and export the result.
 DOCKER ?= docker
@@ -69,7 +73,8 @@ PROD_COMPOSE = env \
 .PHONY: help install run dev test icons \
         images images-bundle load-images prod-build prod-up up-prebuilt prod-down prod-logs prod-ps \
         prod-shell prod-credentials prod-clear-credentials local-up local-down \
-        backup restore bootstrap ssl deploy-check deploy-health health smoke demo-data
+        backup restore bootstrap ssl deploy-check deploy-health health smoke demo-data \
+        updater-install updater-uninstall updater-status updater-logs
 
 # -------------------------------------------------------------------- help
 help: ## Show this help
@@ -103,7 +108,8 @@ icons: ## Regenerate the PWA icons
 
 # ------------------------------------------------------------------ images
 images: ## Build the app image locally (VERSION=latest)
-	$(DOCKER) build -t warehouse-app:$(or $(VERSION),latest) --build-arg VERSION=$(or $(VERSION),latest) .
+	$(DOCKER) build -t warehouse-app:$(or $(VERSION),latest) --build-arg VERSION=$(or $(VERSION),latest) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_TIME=$(BUILD_TIME) .
 	@$(DOCKER) images --format "{{.Repository}}:{{.Tag}}  {{.Size}}" | grep warehouse-app
 
 images-bundle: ## Build the image here and pack dist/warehouse-image.tar.gz for a low-resource VPS
@@ -169,6 +175,19 @@ bootstrap: ## One-shot setup on a fresh Ubuntu/Debian VPS: Docker, .env.prod, TL
 
 ssl: ## Configure host nginx + Let's Encrypt in front of the container
 	@bash scripts/deploy-host-nginx.sh
+
+# ------------------------------------------- in-app update (experimental)
+updater-install: ## Install the host service behind "تنظیمات > نسخه و به‌روزرسانی" (update / rollback from the app)
+	@bash scripts/install-updater.sh install
+
+updater-uninstall: ## Remove the updater service
+	@bash scripts/install-updater.sh uninstall
+
+updater-status: ## Is the updater service running?
+	@bash scripts/install-updater.sh status
+
+updater-logs: ## Recent updater activity
+	@bash scripts/install-updater.sh logs
 
 # --------------------------------------------------------------- verification
 deploy-check: ## Pre-flight checks before deploying

@@ -16,6 +16,7 @@ import { queryMovements, workerBalances } from './services/movements.js';
 import {
   listCounts, getCount, startCount, setCountLine, removeCountLine, submitCount, reopenCount, cancelCount, applyCount,
 } from './services/counts.js';
+import { versionInfo, updateState, requestUpdate } from './services/updater.js';
 import {
   buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile, documentBundle,
 } from './services/exports.js';
@@ -59,7 +60,7 @@ api.get('/meta', requireAuth, (req, res) => {
   const s = getSettings();
   res.json({
     roles: ROLES, reasons: REASONS, directions: DIRECTIONS, statuses: STATUSES, qr_prefix: QR_PREFIX,
-    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in, check_stock: s.check_stock !== false, count_blind: s.count_blind !== false,
+    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in, check_stock: s.check_stock !== false, count_blind: s.count_blind !== false, app: versionInfo(),
     today: todayJalali(),
   });
 });
@@ -336,6 +337,13 @@ api.post('/users/:id/reset-password', requireAdmin, (req, res) => {
   destroyUserSessions(id);
   audit(req.user, 'user.reset_password', 'user', id);
   res.json({ temp_password: pw });
+});
+
+// ---------------- version / in-app update (admin, experimental) ----------------
+api.get('/update', requireAdmin, (_req, res) => res.json(updateState()));
+api.post('/update', requireAdmin, (req, res) => {
+  const request = requestUpdate(req.user, String(req.body?.action ?? ''));
+  res.json({ request, ...updateState() });
 });
 
 // ---------------- settings (admin) ----------------

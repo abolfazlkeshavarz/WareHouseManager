@@ -32,6 +32,12 @@ USER node
 VOLUME ["/data"]
 EXPOSE 3000
 
+# Set last so a new commit does not invalidate the cached layers above.
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=
+ENV APP_COMMIT=${GIT_COMMIT} \
+    APP_BUILT_AT=${BUILD_TIME}
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1
 

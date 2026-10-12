@@ -13,6 +13,8 @@ services:
       dockerfile: Dockerfile
       args:
         VERSION: ${VERSION:-latest}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-}
     container_name: warehouse-app
     restart: unless-stopped
     environment:

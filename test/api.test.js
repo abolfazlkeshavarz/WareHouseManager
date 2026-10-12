@@ -501,6 +501,50 @@ test('stock count: storekeeper counts blind, admin applies the differences as ad
   assert.equal((await admin.req('POST', `/api/counts/${second}/apply`)).status, 409);
 });
 
+test('version + update requests: only admins, only when the host updater is alive', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { DATA_DIR } = await import('../server/db.js');
+  const dir = path.join(DATA_DIR, 'updater');
+  fs.rmSync(dir, { recursive: true, force: true });
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const keeper = new Client();
+  await keeper.login('anbardar');
+
+  const meta = (await keeper.req('GET', '/api/meta')).json;
+  assert.match(meta.app.version, /^\d+\.\d+\.\d+$/);
+  assert.equal((await keeper.req('GET', '/api/update')).status, 403);
+  assert.equal((await keeper.req('POST', '/api/update', { action: 'update' })).status, 403);
+
+  let s = (await admin.req('GET', '/api/update')).json;
+  assert.equal(s.updater.installed, false);
+  assert.equal((await admin.req('POST', '/api/update', { action: 'check' })).status, 409); // no updater service
+
+  const host = (extra = {}) => fs.writeFileSync(path.join(dir, 'host.json'), JSON.stringify({
+    heartbeat: new Date().toISOString(), branch: 'main', commit: 'aaaaaaa', previous: null, available: null, ...extra }));
+  fs.mkdirSync(dir, { recursive: true });
+  host();
+  s = (await admin.req('GET', '/api/update')).json;
+  assert.equal(s.updater.installed, true);
+  assert.equal((await admin.req('POST', '/api/update', { action: 'rm -rf /' })).status, 400);
+  assert.equal((await admin.req('POST', '/api/update', { action: 'update' })).status, 409);   // nothing newer
+  assert.equal((await admin.req('POST', '/api/update', { action: 'rollback' })).status, 409); // nothing to go back to
+
+  host({ available: { behind: 2, commit: 'bbbbbbb', version: '9.9.9', subject: 'x', date: '2026-01-01T00:00:00Z' }, previous: { commit: 'ccccccc', version: '1.0.0' } });
+  const ok = await admin.req('POST', '/api/update', { action: 'update' });
+  assert.equal(ok.status, 200);
+  const req = JSON.parse(fs.readFileSync(path.join(dir, 'request.json'), 'utf8'));
+  assert.deepEqual([req.action, req.by], ['update', 'mokhtar']);
+  assert.equal((await admin.req('POST', '/api/update', { action: 'rollback' })).status, 409); // one at a time
+  fs.rmSync(path.join(dir, 'request.json'));
+
+  // a stale heartbeat means the service died
+  host({ heartbeat: new Date(Date.now() - 10 * 60_000).toISOString() });
+  assert.equal((await admin.req('GET', '/api/update')).json.updater.installed, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();

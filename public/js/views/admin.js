@@ -118,6 +118,107 @@ export async function workersView() {
 }
 
 // ---------------- settings ----------------
+const UPDATE_STEPS = {
+  backup: 'پشتیبان‌گیری از پایگاه داده…', fetch: 'دریافت نسخه‌ی جدید…', build: 'ساخت و راه‌اندازی نسخه (چند دقیقه طول می‌کشد)…',
+  restoring: 'نسخه‌ی جدید بالا نیامد؛ در حال برگرداندن نسخه‌ی قبلی…',
+  done: 'با موفقیت انجام شد.', up_to_date: 'همین حالا آخرین نسخه نصب است.',
+  restored: 'نسخه‌ی جدید بالا نیامد و نسخه‌ی قبلی برگردانده شد.', broken: 'ناموفق بود و برنامه بالا نیامد. سرور را بررسی کنید.',
+  merge: 'ادغام نسخه‌ی جدید ممکن نشد.', local_changes: 'روی سرور فایل‌های تغییرکرده وجود دارد؛ به‌روزرسانی خودکار انجام نشد.',
+  no_previous: 'نسخه‌ی قبلی برای بازگشت ثبت نشده است.',
+};
+
+/** «نسخه و به‌روزرسانی»: shows the running version and asks the host updater service to update / roll back. */
+function updateCard() {
+  const box = h('div', { class: 'stack' });
+  const card = h('div', { class: 'card stack', style: { borderColor: 'var(--warn)' } },
+    h('div', { class: 'row', style: { gap: '8px' } }, h('h2', { class: 'grow' }, 'نسخه و به‌روزرسانی'), h('span', { class: 'chip warn' }, 'آزمایشی')),
+    box);
+  let timer = null;
+  let stopped = false;
+  let started = null; // commit that was running when an action was requested
+
+  const verText = (v) => (v ? `${v.version || '—'}${v.commit ? ' (' + v.commit + ')' : ''}` : '—');
+  const schedule = (ms) => { clearTimeout(timer); if (!stopped) timer = setTimeout(refresh, ms); };
+
+  async function send(action, confirm) {
+    if (confirm && !(await confirmDialog(confirm))) return;
+    try {
+      const s = await api.post('/api/update', { action });
+      started = s.current.commit;
+      draw(s, action === 'check' ? 'در حال بررسی…' : 'درخواست ثبت شد…');
+      schedule(2500);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function draw(s, note) {
+    const u = s.updater;
+    const st = s.status;
+    const working = s.busy || s.pending;
+    const rows = [h('dl', { class: 'kv' },
+      h('dt', null, 'نسخه‌ی در حال اجرا'), h('dd', { class: 'ltr' }, verText(s.current)),
+      s.current.built_at ? h('dt', null, 'زمان ساخت') : null, s.current.built_at ? h('dd', null, fmtDateTime(s.current.built_at)) : null,
+      u.previous ? h('dt', null, 'نسخه‌ی قبلی') : null, u.previous ? h('dd', { class: 'ltr' }, verText(u.previous)) : null)];
+
+    if (!u.installed) {
+      rows.push(h('div', { class: 'hint' }, 'سرویس به‌روزرسانی روی سرور فعال نیست. برای فعال کردن، یک بار روی سرور این دستور را اجرا کنید:'),
+        h('div', { class: 'code-tag ltr', style: { display: 'block', padding: '8px' } }, 'make updater-install'));
+    } else {
+      if (working) rows.push(h('div', { class: 'banner info' }, h('div', { class: 'spinner', style: { width: '18px', height: '18px' } }),
+        h('span', { class: 'grow' }, (st?.state === 'running' && UPDATE_STEPS[st.step]) || note || 'در حال انجام…')));
+      else if (st && st.action !== 'check') rows.push(h('div', { class: `banner ${st.state === 'done' ? 'info' : 'attn'}` },
+        h('span', { class: 'grow' }, `${st.action === 'rollback' ? 'بازگشت به نسخه‌ی قبلی' : 'به‌روزرسانی'}: ${UPDATE_STEPS[st.step] || (st.state === 'done' ? 'انجام شد.' : 'ناموفق بود.')}`,
+          st.finished_at ? h('div', { class: 'muted small' }, fmtDateTime(st.finished_at)) : null,
+          st.state !== 'done' && st.detail ? h('div', { class: 'muted small ltr' }, st.detail) : null)));
+
+      rows.push(u.available
+        ? h('div', null, h('b', null, `نسخه‌ی جدید آماده است: `), h('span', { class: 'ltr' }, verText(u.available)),
+          h('div', { class: 'muted small' }, `${fa(u.available.behind)} تغییر جدید${u.available.subject ? ' • ' + u.available.subject : ''}`))
+        : h('div', { class: 'muted small' }, `نسخه‌ی جدیدی پیدا نشد.${u.checked_at ? ' آخرین بررسی: ' + fmtDateTime(u.checked_at) : ''}`));
+
+      rows.push(h('div', { class: 'row wrap', style: { gap: '8px' } },
+        u.available ? h('button', { class: 'btn grow', type: 'button', disabled: working, onClick: () => send('update', {
+          title: 'به‌روزرسانی برنامه',
+          message: `نسخه‌ی ${verText(u.available)} نصب می‌شود. قبل از آن از پایگاه داده پشتیبان گرفته می‌شود. برنامه چند دقیقه در دسترس نخواهد بود؛ اگر نسخه‌ی جدید بالا نیاید، نسخه‌ی فعلی خودکار برمی‌گردد.`,
+          confirmText: 'به‌روزرسانی',
+        }) }, icon('download'), 'به‌روزرسانی') : null,
+        h('button', { class: 'btn secondary grow', type: 'button', disabled: working, onClick: () => send('check') }, 'بررسی نسخه جدید'),
+        u.previous ? h('button', { class: 'btn secondary grow', type: 'button', disabled: working, onClick: () => send('rollback', {
+          title: 'بازگشت به نسخه‌ی قبلی',
+          message: `برنامه به نسخه‌ی ${verText(u.previous)} برمی‌گردد. اطلاعات (قطعات، اسناد، موجودی) دست نمی‌خورد. برنامه چند دقیقه در دسترس نخواهد بود.`,
+          confirmText: 'بازگشت', danger: true,
+        }) }, 'بازگشت به نسخه‌ی قبلی') : null));
+      rows.push(h('div', { class: 'hint' }, 'هنگام به‌روزرسانی کسی سند ثبت نکند. این بخش آزمایشی است؛ روش مطمئن همیشه اجرای دستی روی سرور است.'));
+    }
+    box.replaceChildren(...rows.filter(Boolean));
+    return working;
+  }
+
+  async function refresh() {
+    if (stopped) return;
+    try {
+      const s = await api.get('/api/update', { noAuthRedirect: true });
+      if (started && s.current.commit && s.current.commit !== started) { location.reload(); return; }
+      const working = draw(s);
+      if (!working) started = null;
+      schedule(working ? 3000 : 30000);
+    } catch (e) {
+      if (started) {
+        // the container is being replaced: the server is away for a moment
+        box.replaceChildren(h('div', { class: 'banner info' }, h('div', { class: 'spinner', style: { width: '18px', height: '18px' } }),
+          h('span', { class: 'grow' }, 'برنامه در حال راه‌اندازی مجدد است…')));
+        schedule(3000);
+      } else if (e.status === 401) {
+        stopped = true;
+      } else {
+        box.replaceChildren(h('div', { class: 'err-text' }, e.message));
+        schedule(15000);
+      }
+    }
+  }
+  refresh();
+  return { card, stop: () => { stopped = true; clearTimeout(timer); } };
+}
+
 export async function settingsView() {
   const { settings: s } = await api.get('/api/settings');
 
@@ -132,6 +233,7 @@ export async function settingsView() {
     ...s.sepidar_warehouses.map((w) => h('option', { value: w.code, selected: w.code === s.sepidar_main_warehouse }, `${w.title} (${w.code})`)));
 
   const err = h('div', { class: 'err-text' });
+  const update = updateCard();
   const body = h('div', { class: 'stack' },
     h('div', { class: 'card stack' },
       h('h2', null, 'گردش تایید'),
@@ -151,6 +253,7 @@ export async function settingsView() {
       h('h2', null, 'انبارها'),
       field('فهرست انبارها (هر خط: کد، فاصله، عنوان)', whText, 'برای «انتقال بین انبار» و ضایعات (کد 1004) و فایل بارکد سپیدار استفاده می‌شود.'),
       field('انبار این سامانه (مبدأ ورود و خروج)', mainWh, 'پس از تغییر فهرست، ذخیره کنید و صفحه را دوباره باز کنید.')),
+    update.card,
     err,
     h('button', { class: 'btn block', onClick: async () => {
       err.textContent = '';
@@ -168,7 +271,7 @@ export async function settingsView() {
         toast('تنظیمات ذخیره شد.', 'ok');
       } catch (e) { err.textContent = e.message; }
     } }, 'ذخیره تنظیمات'));
-  return { title: 'تنظیمات', back: '/more', body };
+  return { title: 'تنظیمات', back: '/more', body, cleanup: update.stop };
 }
 
 // ---------------- audit ----------------
