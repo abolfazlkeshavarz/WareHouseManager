@@ -408,6 +408,45 @@ test('worker balance: delivered minus returned per worker and part (variants tog
   assert.equal(w.parts.find((p) => p.name === other.name).balance, 0);
 });
 
+test('documents: admin delete reverses stock, hides the document, keeps a record', async () => {
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const keeper = new Client();
+  await keeper.login('anbardar');
+  const it = (await admin.req('GET', '/api/items')).json.items.find((i) => i.code === '32100');
+  const stock = async () => (await admin.req('GET', '/api/items/' + it.id)).json.item.stock;
+  const post = (direction, reason, qty, extra = {}) => admin.req('POST', '/api/documents', { direction, reason, lines: [{ item_id: it.id, qty }], ...extra });
+  const inDoc = (await post('in', 'other_in', 40)).json.document;
+  const outDoc = (await post('out', 'to_worker', 30, { worker_name: 'کارگر سند' })).json.document;
+  assert.equal(await stock(), 10);
+
+  assert.equal((await keeper.req('POST', `/api/documents/${outDoc.id}/delete`, { reason: 'x' })).status, 403);
+  // deleting the receipt first would leave -30
+  const blocked = await admin.req('POST', `/api/documents/${inDoc.id}/delete`, { reason: 'اشتباه' });
+  assert.equal(blocked.status, 409);
+  assert.equal(await stock(), 10);
+
+  const del = await admin.req('POST', `/api/documents/${outDoc.id}/delete`, { reason: 'ثبت اشتباه' });
+  assert.equal(del.status, 200);
+  assert.equal(del.json.document.status, 'deleted');
+  assert.equal(del.json.document.delete_note, 'ثبت اشتباه');
+  assert.equal(await stock(), 40);
+  assert.equal((await admin.req('POST', `/api/documents/${outDoc.id}/delete`, { reason: 'x' })).status, 409);
+
+  const all = (await admin.req('GET', '/api/documents?limit=500')).json.rows;
+  assert.equal(all.some((d) => d.id === outDoc.id), false);
+  const gone = (await admin.req('GET', '/api/documents?status=deleted')).json.rows;
+  assert.equal(gone.some((d) => d.id === outDoc.id && d.status === 'deleted'), true);
+  const hist = (await admin.req('GET', '/api/items/' + it.id)).json.history;
+  assert.equal(hist.some((h) => h.document_id === outDoc.id || h.doc_no === outDoc.doc_no), false);
+  assert.equal((await admin.req('GET', '/api/worker-balance')).json.workers.some((w) => w.name === 'کارگر سند'), false);
+  assert.equal((await admin.req('GET', `/api/documents/${outDoc.id}/barcodes.txt`)).status, 409);
+
+  // now the receipt can go too; a pending request is deleted without touching stock
+  assert.equal((await admin.req('POST', `/api/documents/${inDoc.id}/delete`, { reason: 'اشتباه' })).status, 200);
+  assert.equal(await stock(), 0);
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();

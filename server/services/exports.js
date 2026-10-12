@@ -185,7 +185,7 @@ export async function buildFullExport({ from, to, fromLabel, toLabel }) {
     ws5.addRow({
       no: d.doc_no, created: `${jalaliDate(d.created_at)} ${clockTime(d.created_at)}`, dir: DIRECTIONS[d.direction],
       reason: REASONS[d.reason]?.label ?? d.reason, worker: d.worker_name, dest: d.dest_warehouse, lines: d.lines, total: d.total,
-      note: d.note, creator: d.creator, status: STATUSES[d.status], decider: d.decider ?? '',
+      note: d.note, creator: d.creator, status: STATUSES[d.deleted_at ? 'deleted' : d.status], decider: d.decider ?? '',
       decided: d.decided_at ? `${jalaliDate(d.decided_at)} ${clockTime(d.decided_at)}` : '', dnote: d.decision_note,
     });
   }

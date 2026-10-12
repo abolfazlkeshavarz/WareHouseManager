@@ -4,7 +4,7 @@ import { h, icon, fa, faId, fmtDateTime, itemTitle, emptyState, thumb } from '..
 
 export function docCard(d) {
   const dirChip = h('span', { class: `chip ${d.direction}` }, icon(d.direction === 'in' ? 'inbox' : 'outbox'), d.direction === 'in' ? 'ورود' : 'خروج');
-  const statusClass = { pending: 'warn', approved: 'in', rejected: 'danger', cancelled: '' }[d.status];
+  const statusClass = { pending: 'warn', approved: 'in', rejected: 'danger', cancelled: '', deleted: 'danger' }[d.status];
   return h('a', { class: 'card item-card', href: `#/docs/${d.id}`, style: { color: 'inherit' } },
     h('div', { class: 'grow' },
       h('div', { class: 'row wrap', style: { gap: '6px' } },

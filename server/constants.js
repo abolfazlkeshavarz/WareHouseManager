@@ -31,6 +31,7 @@ export const STATUSES = {
   approved: 'تایید شده',
   rejected: 'رد شده',
   cancelled: 'لغو شده',
+  deleted: 'حذف شده',
 };
 
 // Sepidar document types. Each approved document belongs to one Sepidar document (رسید انبار / خروج انبار and its type)

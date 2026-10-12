@@ -163,6 +163,40 @@ export function cancelDocument(user, id) {
   });
 }
 
+/**
+ * Admin delete. The row is kept (history is never erased) but the document disappears from lists, reports and exports:
+ * an applied document gets its stock effect reversed, then it is marked deleted with who / when / why.
+ */
+export function deleteDocument(admin, id, reason) {
+  const note = String(reason ?? '').trim().slice(0, 300);
+  return tx(() => {
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id);
+    if (!doc) throw new HttpError(404, 'سند پیدا نشد.');
+    if (doc.deleted_at) throw new HttpError(409, 'این سند قبلاً حذف شده است.');
+    const t = nowISO();
+    const reversed = [];
+    if (doc.status === 'approved') {
+      const checkStock = getSettings().check_stock !== false;
+      const lines = db.prepare('SELECT * FROM document_lines WHERE document_id = ? ORDER BY id').all(id);
+      const getItem = db.prepare('SELECT id, code, name, variant, stock FROM items WHERE id = ?');
+      const setStock = db.prepare('UPDATE items SET stock = ?, updated_at = ? WHERE id = ?');
+      for (const l of lines) {
+        const it = getItem.get(l.item_id);
+        const after = doc.direction === 'in' ? it.stock - l.qty : it.stock + l.qty;
+        if (after < 0 && checkStock) {
+          throw new HttpError(409, `حذف این سند موجودی «${itemLabel(it)}» را منفی می‌کند (موجودی ${it.stock}، ورودی این سند ${l.qty}). ابتدا خروج‌های بعدی را اصلاح کنید.`, { code: 'insufficient_stock' });
+        }
+        setStock.run(after, t, it.id);
+        reversed.push({ code: it.code, before: it.stock, after });
+      }
+    }
+    db.prepare("UPDATE documents SET deleted_status = status, status = 'cancelled', deleted_at = ?, deleted_by = ?, delete_note = ? WHERE id = ?")
+      .run(t, admin.id, note, id);
+    audit(admin, 'document.delete', 'document', id, { doc_no: doc.doc_no, was: doc.status, reason: note, reversed });
+    return { reversed: reversed.length };
+  });
+}
+
 /** Admin stock-count correction: sets an item to the counted quantity via an auto-approved document. */
 export function adjustStock(admin, itemId, counted, note) {
   const target = Number(counted);
@@ -192,6 +226,15 @@ const DOC_SELECT = `
   JOIN users cu ON cu.id = d.created_by
   LEFT JOIN users du ON du.id = d.decided_by`;
 
+// A deleted document is stored as 'cancelled' (so every stock query ignores it); readers see it as 'deleted'.
+function present(doc) {
+  if (doc?.deleted_at) {
+    doc.status = 'deleted';
+    doc.deleted_by_name = db.prepare('SELECT display_name FROM users WHERE id = ?').get(doc.deleted_by)?.display_name ?? '';
+  }
+  return doc;
+}
+
 export function getDocument(id) {
   const doc = db.prepare(`${DOC_SELECT} WHERE d.id = ?`).get(id);
   if (!doc) return null;
@@ -199,13 +242,17 @@ export function getDocument(id) {
                                  i.code, i.sepidar_code, i.name, i.variant, i.unit, i.image, i.stock AS current_stock
                           FROM document_lines l JOIN items i ON i.id = l.item_id
                           WHERE l.document_id = ? ORDER BY l.id`).all(id);
-  return doc;
+  return present(doc);
 }
 
 export function listDocuments(f = {}) {
   const where = [];
   const params = [];
-  if (f.status) { where.push('d.status = ?'); params.push(f.status); }
+  if (f.status === 'deleted') where.push('d.deleted_at IS NOT NULL');
+  else {
+    where.push('d.deleted_at IS NULL');
+    if (f.status) { where.push('d.status = ?'); params.push(f.status); }
+  }
   if (f.direction) { where.push('d.direction = ?'); params.push(f.direction); }
   if (f.reason) { where.push('d.reason = ?'); params.push(f.reason); }
   if (f.user_id) { where.push('d.created_by = ?'); params.push(Number(f.user_id)); }
@@ -224,7 +271,7 @@ export function listDocuments(f = {}) {
   const offset = Math.max(Number(f.offset) || 0, 0);
   const total = db.prepare(`SELECT COUNT(*) AS c FROM documents d ${sqlWhere}`).get(...params).c;
   const rows = db.prepare(`${DOC_SELECT} ${sqlWhere} ORDER BY d.id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
-  return { total, rows };
+  return { total, rows: rows.map(present) };
 }
 
 export function pendingCount() {

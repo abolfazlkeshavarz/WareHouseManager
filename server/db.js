@@ -132,6 +132,10 @@ try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN party TEXT'); } catch { /*
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_no INTEGER'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_date TEXT'); } catch { /* exists */ }
 try { db.exec("ALTER TABLE documents ADD COLUMN dest_warehouse TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
+// A deleted document keeps its row (status becomes 'cancelled' so nothing counts it) plus who/when/why.
+for (const col of ['deleted_at TEXT', 'deleted_by INTEGER', "delete_note TEXT NOT NULL DEFAULT ''", 'deleted_status TEXT']) {
+  try { db.exec(`ALTER TABLE documents ADD COLUMN ${col}`); } catch { /* column already exists */ }
+}
 // Stock may go below zero when the «check stock» setting is off, so older databases lose the CHECK (stock >= 0).
 {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'").get();

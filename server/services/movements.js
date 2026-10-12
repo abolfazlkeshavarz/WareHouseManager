@@ -22,6 +22,7 @@ const COLUMNS = `
 export function queryMovements(f = {}, { limit = 100, offset = 0, order = 'DESC' } = {}) {
   const where = [];
   const params = [];
+  where.push('d.deleted_at IS NULL');
   if (f.status) { where.push('d.status = ?'); params.push(f.status); }
   if (f.direction) { where.push('d.direction = ?'); params.push(f.direction); }
   if (f.reason) { where.push('d.reason = ?'); params.push(f.reason); }

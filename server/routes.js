@@ -7,7 +7,7 @@ import {
 } from './auth.js';
 import { ROLES, REASONS, DIRECTIONS, STATUSES, SEPIDAR_GROUPS } from './constants.js';
 import {
-  createDocument, approveDocument, rejectDocument, cancelDocument, adjustStock, getDocument, listDocuments, pendingCount,
+  createDocument, approveDocument, rejectDocument, cancelDocument, deleteDocument, adjustStock, getDocument, listDocuments, pendingCount,
 } from './services/documents.js';
 import {
   listItems, getItem, lookupItem, createItem, updateItem, setItemActive, saveItemImage, importItems, itemTemplate, itemWithStats,
@@ -199,6 +199,12 @@ api.post('/documents/:id/approve', requireAdmin, (req, res) => {
 api.post('/documents/:id/reject', requireAdmin, (req, res) => {
   rejectDocument(req.user, Number(req.params.id), req.body?.reason);
   res.json({ document: getDocument(Number(req.params.id)) });
+});
+
+api.post('/documents/:id/delete', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const r = deleteDocument(req.user, id, req.body?.reason);
+  res.json({ document: getDocument(id), ...r });
 });
 
 api.post('/documents/:id/cancel', (req, res) => {

@@ -96,6 +96,7 @@ export async function docsView({ query }) {
 
   function drawTabs() {
     const defs = [['pending', 'در انتظار تایید'], ['approved', 'تایید شده'], ['rejected', 'رد شده'], ['', 'همه']];
+    if (admin) defs.push(['deleted', 'حذف‌شده‌ها']);
     tabsBox.replaceChildren(...[
       ...defs.map(([k, label]) => h('button', { class: status === k ? 'active' : '', onClick: () => { status = k; drawTabs(); load(true); } },
         label, k === 'pending' && store.pending ? h('span', { class: 'count' }, fa(store.pending)) : null)),
@@ -115,7 +116,7 @@ export async function docDetailView({ params }) {
   const { document: d } = await api.get(`/api/documents/${params.id}`);
   const admin = isAdmin();
   const body = h('div', { class: 'stack' });
-  const statusClass = { pending: 'warn', approved: 'in', rejected: 'danger', cancelled: '' }[d.status];
+  const statusClass = { pending: 'warn', approved: 'in', rejected: 'danger', cancelled: '', deleted: 'danger' }[d.status];
 
   async function act(fn, okMsg) {
     try {
@@ -163,7 +164,12 @@ export async function docDetailView({ params }) {
   // timeline
   const tl = h('div', { class: 'timeline' },
     h('div', { class: 'ev' }, h('b', null, 'ثبت درخواست'), h('div', { class: 'muted small' }, `${d.created_by_name} • ${fmtDateTime(d.created_at)}`)));
-  if (d.status !== 'pending') {
+  if (d.status === 'deleted') {
+    tl.append(h('div', { class: 'ev bad' },
+      h('b', null, 'سند حذف شد'), h('div', { class: 'muted small' }, `${d.deleted_by_name || '—'} • ${fmtDateTime(d.deleted_at)}`),
+      d.delete_note ? h('div', { class: 'small' }, d.delete_note) : null,
+      d.deleted_status === 'approved' ? h('div', { class: 'small muted' }, 'اثر این سند روی موجودی برگردانده شده است.') : null));
+  } else if (d.status !== 'pending') {
     const who = d.decided_by_name || '—';
     const text = { approved: 'تایید و اعمال شد', rejected: 'رد شد', cancelled: 'لغو شد' }[d.status];
     tl.append(h('div', { class: `ev ${d.status === 'approved' ? 'ok' : 'bad'}` },
@@ -214,6 +220,21 @@ export async function docDetailView({ params }) {
       } }, 'لغو درخواست'));
     }
     body.append(bar);
+  }
+
+  if (admin && d.status !== 'deleted') {
+    const applied = d.status === 'approved';
+    body.append(h('button', { class: 'btn ghost block', style: { color: 'var(--danger)' }, type: 'button', onClick: async () => {
+      const reason = await promptDialog({
+        title: `حذف سند ${faId(d.doc_no)}`,
+        label: 'دلیل حذف',
+        confirmText: 'حذف سند',
+        hint: applied
+          ? `موجودی ${fa(d.lines.length)} قلم به حالت قبل از این سند برمی‌گردد (${d.direction === 'out' ? 'اضافه' : 'کم'} می‌شود) و سند از فهرست‌ها و گزارش‌ها حذف می‌شود.${d.sepidar_batch_id ? ' این سند قبلاً برای سپیدار خروجی گرفته شده؛ در سپیدار هم اصلاح کنید.' : ''}`
+          : 'سند از فهرست‌ها حذف می‌شود. موجودی تغییری نمی‌کند.',
+      });
+      if (reason) act(() => api.post(`/api/documents/${d.id}/delete`, { reason }), 'سند حذف شد.');
+    } }, icon('trash'), 'حذف سند'));
   }
 
   return { title: `سند ${faId(d.doc_no)}`, back: '/docs', body };
