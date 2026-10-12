@@ -126,6 +126,32 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 `);
 
+// stock counts (انبارگردانی): the numbers people counted, reviewed and applied by an admin
+db.exec(`
+CREATE TABLE IF NOT EXISTS stock_counts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open',
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  submitted_by INTEGER REFERENCES users(id),
+  submitted_at TEXT,
+  decided_by INTEGER REFERENCES users(id),
+  decided_at TEXT,
+  result TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS stock_count_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  count_id INTEGER NOT NULL REFERENCES stock_counts(id),
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  counted INTEGER NOT NULL,
+  counted_by INTEGER NOT NULL REFERENCES users(id),
+  counted_at TEXT NOT NULL,
+  expected INTEGER,
+  UNIQUE (count_id, item_id)
+);
+`);
+
 // migrations for databases created by older versions
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN group_key TEXT'); } catch { /* column already exists */ }
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN party TEXT'); } catch { /* exists */ }

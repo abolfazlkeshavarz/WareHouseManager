@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS = {
   company_name: 'شرکت نیک نام طلاییه داران کاسپین',
   approval_required_out: true,
   approval_required_in: false,
+  count_blind: true, // انبارگردانی: hide the system quantity from the storekeeper while counting
   check_stock: true, // refuse stock-out lines larger than the current stock
   sepidar_warehouses: DEFAULT_WAREHOUSES,
   sepidar_main_warehouse: '1001',

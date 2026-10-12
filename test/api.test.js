@@ -447,6 +447,60 @@ test('documents: admin delete reverses stock, hides the document, keeps a record
   assert.equal(await stock(), 0);
 });
 
+test('stock count: storekeeper counts blind, admin applies the differences as adjustment documents', async () => {
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const keeper = new Client();
+  await keeper.login('anbardar');
+  const items = (await admin.req('GET', '/api/items')).json.items;
+  const [a, b, c] = ['32200', '32300', '32400'].map((code) => items.find((i) => i.code === code));
+  await admin.req('POST', '/api/documents', { direction: 'in', reason: 'other_in', lines: [{ item_id: a.id, qty: 10 }, { item_id: b.id, qty: 10 }, { item_id: c.id, qty: 10 }] });
+  const stock = async (it) => (await admin.req('GET', '/api/items/' + it.id)).json.item.stock;
+
+  const start = await keeper.req('POST', '/api/counts', { title: 'پایان ماه' });
+  assert.equal(start.status, 201);
+  const id = start.json.id;
+  assert.equal((await keeper.req('POST', '/api/counts', {})).status, 409); // only one at a time
+  const line = (it, counted, who = keeper) => who.req('POST', `/api/counts/${id}/lines`, { item_id: it.id, counted });
+  assert.equal((await line(a, 7)).status, 200);
+  assert.equal((await line(b, 99)).status, 200);
+  assert.equal((await line(b, 14)).status, 200); // recount replaces
+  assert.equal((await line(c, 10)).status, 200);
+  assert.equal((await line(c, -1)).status, 400);
+
+  const blind = (await keeper.req('GET', `/api/counts/${id}`)).json;
+  assert.equal(blind.shows_expected, false);
+  assert.equal(blind.lines.length, 3);
+  assert.equal(blind.lines.every((l) => l.expected === undefined && l.diff === undefined && l.stock === undefined), true);
+  assert.equal(blind.uncounted.length, blind.total_items - 3);
+
+  assert.equal((await keeper.req('POST', `/api/counts/${id}/apply`)).status, 403);
+  assert.equal((await keeper.req('POST', `/api/counts/${id}/submit`)).status, 200);
+  assert.equal((await line(a, 8)).status, 409); // closed for counting
+  const review = (await admin.req('GET', `/api/counts/${id}`)).json;
+  assert.deepEqual(review.lines.map((l) => [l.code, l.expected, l.counted, l.diff]).sort(), [['32200', 10, 7, -3], ['32300', 10, 14, 4], ['32400', 10, 10, 0]]);
+  assert.deepEqual([await stock(a), await stock(b)], [10, 10]); // nothing moves before approval
+
+  const done = await admin.req('POST', `/api/counts/${id}/apply`);
+  assert.equal(done.status, 200);
+  assert.deepEqual([done.json.result.changed, done.json.result.same, done.json.result.plus_qty, done.json.result.minus_qty], [2, 1, 4, 3]);
+  assert.deepEqual([await stock(a), await stock(b), await stock(c)], [7, 14, 10]);
+  const doc = (await admin.req('GET', '/api/documents/' + done.json.result.docs[0])).json.document;
+  assert.equal(doc.reason, 'adjust_in');
+  assert.equal(doc.status, 'approved');
+  assert.equal((await admin.req('POST', `/api/counts/${id}/apply`)).status, 409);
+  const after = (await keeper.req('GET', `/api/counts/${id}`)).json;
+  assert.equal(after.count.status, 'applied');
+  assert.equal(after.lines.find((l) => l.code === '32200').expected, 10); // what the system showed before, kept for the record
+
+  // a cancelled count changes nothing and frees the slot
+  const second = (await keeper.req('POST', '/api/counts', {})).json.id;
+  await keeper.req('POST', `/api/counts/${second}/lines`, { item_id: a.id, counted: 0 });
+  assert.equal((await keeper.req('POST', `/api/counts/${second}/cancel`)).status, 200);
+  assert.equal(await stock(a), 7);
+  assert.equal((await admin.req('POST', `/api/counts/${second}/apply`)).status, 409);
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();

@@ -124,6 +124,7 @@ export async function settingsView() {
   const approvalOut = h('input', { type: 'checkbox', checked: s.approval_required_out, style: { width: '22px', height: '22px' } });
   const approvalIn = h('input', { type: 'checkbox', checked: s.approval_required_in, style: { width: '22px', height: '22px' } });
   const checkStock = h('input', { type: 'checkbox', checked: s.check_stock !== false, style: { width: '22px', height: '22px' } });
+  const countBlind = h('input', { type: 'checkbox', checked: s.count_blind !== false, style: { width: '22px', height: '22px' } });
   const company = h('input', { class: 'input', value: s.company_name, maxlength: 100 });
   const whText = h('textarea', { class: 'input code', rows: 4, style: { direction: 'ltr' } },
     s.sepidar_warehouses.map((w) => `${w.code} ${w.title}`).join('\n'));
@@ -141,6 +142,10 @@ export async function settingsView() {
       h('h2', null, 'کنترل موجودی'),
       h('label', { class: 'row', style: { gap: '12px' } }, checkStock, h('span', null, 'هنگام خروج، اگر تعداد از موجودی انبار بیشتر بود خطا داده شود')),
       h('div', { class: 'hint' }, 'اگر خاموش باشد، ثبت خروج بیش از موجودی هم ممکن است و موجودی قطعه می‌تواند منفی شود.')),
+    h('div', { class: 'card stack' },
+      h('h2', null, 'انبارگردانی'),
+      h('label', { class: 'row', style: { gap: '12px' } }, countBlind, h('span', null, 'شمارش کور: هنگام شمارش، موجودی سامانه به انباردار نشان داده نشود')),
+      h('div', { class: 'hint' }, 'با روشن بودن این گزینه انباردار فقط عدد روی قفسه را وارد می‌کند و اختلاف‌ها را فقط مدیر می‌بیند.')),
     h('div', { class: 'card stack' }, h('h2', null, 'اطلاعات عمومی'), field('نام شرکت', company)),
     h('div', { class: 'card stack' },
       h('h2', null, 'انبارها'),
@@ -151,7 +156,7 @@ export async function settingsView() {
       err.textContent = '';
       try {
         await api.put('/api/settings', {
-          approval_required_out: approvalOut.checked, approval_required_in: approvalIn.checked, check_stock: checkStock.checked,
+          approval_required_out: approvalOut.checked, approval_required_in: approvalIn.checked, check_stock: checkStock.checked, count_blind: countBlind.checked,
           company_name: company.value,
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);

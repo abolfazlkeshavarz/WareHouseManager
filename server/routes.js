@@ -14,6 +14,9 @@ import {
 } from './services/items.js';
 import { queryMovements, workerBalances } from './services/movements.js';
 import {
+  listCounts, getCount, startCount, setCountLine, removeCountLine, submitCount, reopenCount, cancelCount, applyCount,
+} from './services/counts.js';
+import {
   buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile, documentBundle,
 } from './services/exports.js';
 import {
@@ -56,7 +59,7 @@ api.get('/meta', requireAuth, (req, res) => {
   const s = getSettings();
   res.json({
     roles: ROLES, reasons: REASONS, directions: DIRECTIONS, statuses: STATUSES, qr_prefix: QR_PREFIX,
-    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in, check_stock: s.check_stock !== false,
+    sepidar_groups: SEPIDAR_GROUPS, company_name: s.company_name, warehouses: s.sepidar_warehouses, main_warehouse: s.sepidar_main_warehouse, approval_required_out: s.approval_required_out, approval_required_in: s.approval_required_in, check_stock: s.check_stock !== false, count_blind: s.count_blind !== false,
     today: todayJalali(),
   });
 });
@@ -220,6 +223,23 @@ api.get('/movements', (req, res) => {
   res.json(out);
 });
 
+// ---------------- stock counts (انبارگردانی) ----------------
+api.get('/counts', (_req, res) => res.json({ counts: listCounts() }));
+api.post('/counts', (req, res) => res.status(201).json({ id: startCount(req.user, req.body?.title) }));
+api.get('/counts/:id', (req, res) => res.json(getCount(req.user, Number(req.params.id))));
+api.post('/counts/:id/lines', (req, res) => {
+  setCountLine(req.user, Number(req.params.id), req.body?.item_id, req.body?.counted);
+  res.json({ ok: true });
+});
+api.post('/counts/:id/lines/:itemId/delete', (req, res) => {
+  removeCountLine(req.user, Number(req.params.id), req.params.itemId);
+  res.json({ ok: true });
+});
+api.post('/counts/:id/submit', (req, res) => { submitCount(req.user, Number(req.params.id)); res.json({ ok: true }); });
+api.post('/counts/:id/cancel', (req, res) => { cancelCount(req.user, Number(req.params.id)); res.json({ ok: true }); });
+api.post('/counts/:id/reopen', requireAdmin, (req, res) => { reopenCount(req.user, Number(req.params.id)); res.json({ ok: true }); });
+api.post('/counts/:id/apply', requireAdmin, (req, res) => res.json({ result: applyCount(req.user, Number(req.params.id)) }));
+
 // ---------------- workers ----------------
 api.get('/worker-balance', (_req, res) => {
   res.json({ workers: workerBalances() });
@@ -334,7 +354,7 @@ api.put('/settings', requireAdmin, (req, res) => {
   };
   const bool = (k) => { if (b[k] !== undefined) { setSetting(k, !!b[k]); changes[k] = !!b[k]; } };
   str('company_name', 100);
-  bool('approval_required_out'); bool('approval_required_in'); bool('check_stock');
+  bool('approval_required_out'); bool('approval_required_in'); bool('check_stock'); bool('count_blind');
   if (b.sepidar_warehouses !== undefined) {
     const list = (Array.isArray(b.sepidar_warehouses) ? b.sepidar_warehouses : [])
       .map((w) => ({ code: String(w?.code ?? '').trim().slice(0, 20), title: String(w?.title ?? '').trim().slice(0, 80) }))
