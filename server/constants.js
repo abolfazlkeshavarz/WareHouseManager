@@ -61,6 +61,9 @@ export const DEFAULT_SETTINGS = {
   company_name: 'شرکت نیک نام طلاییه داران کاسپین',
   approval_required_out: true,
   approval_required_in: false,
+  backup_enabled: true, // automatic daily backup into <data>/backups
+  backup_hour: 2,       // not before this hour (server time)
+  backup_keep: 14,      // newest files kept
   count_blind: true, // انبارگردانی: hide the system quantity from the storekeeper while counting
   check_stock: true, // refuse stock-out lines larger than the current stock
   sepidar_warehouses: DEFAULT_WAREHOUSES,

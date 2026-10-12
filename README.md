@@ -59,7 +59,11 @@ DOMAIN=warehouse.example.com LETSENCRYPT_EMAIL=you@example.com ./scripts/bootstr
 | `make deploy-check` | بررسی پیش از استقرار |
 | `make demo-data API_URL=… ADMIN_USER=… ADMIN_PASSWORD=…` | داده‌ی آزمایشی (فقط روی انبار خالی) |
 
-پشتیبان شبانه (cron سرور): `30 2 * * * cd /opt/warehouse && ./scripts/backup-prod.sh >> backups/backup.log 2>&1`
+**پشتیبان‌گیری خودکار:** برنامه خودش هر روز (به‌طور پیش‌فرض بعد از ساعت ۲ بامداد) از پایگاه داده پشتیبان می‌گیرد، سلامت فایل را بررسی می‌کند و ۱۴ فایل آخر را در `/data/backups` (داخل volume) نگه می‌دارد. تنظیم و دریافت فایل‌ها: «تنظیمات › پشتیبان‌گیری خودکار». `make health` اگر آخرین پشتیبان قدیمی‌تر از دو روز باشد هشدار می‌دهد.
+
+بازگردانی یک پشتیبان: فایل را از تنظیمات دریافت کنید (یا `docker cp warehouse-app:/data/backups/<file> backups/`) و سپس `make restore FILE=backups/<file>`.
+
+کپی روی خودِ سرور، بیرون از volume (اختیاری، cron): `30 2 * * * cd /opt/warehouse && ./scripts/backup-prod.sh >> backups/backup.log 2>&1`
 
 ### نسخه و به‌روزرسانی از داخل برنامه (آزمایشی)
 

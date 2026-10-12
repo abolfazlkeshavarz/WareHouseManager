@@ -61,6 +61,15 @@ echo "HTTP ($API_URL)"
 c="$(code_of "$API_URL/health")"
 [[ "$c" == "200" ]] && ok "GET /health -> 200" || bad "GET /health -> $c"
 
+# automatic backup: the newest copy should be less than two days old
+last_backup="$(curl -s --max-time 10 "$API_URL/health" 2>/dev/null | sed -n 's/.*"last_backup_at":"\([^"]*\)".*/\1/p')"
+if [[ -z "$last_backup" ]]; then
+  warn "no backup yet (the app makes one every day; or run: make backup)"
+else
+  age_h=$(( ( $(date -u +%s) - $(date -u -d "$last_backup" +%s 2>/dev/null || echo 0) ) / 3600 ))
+  if (( age_h > 48 )); then warn "newest backup is ${age_h}h old ($last_backup)"; else ok "newest backup: $last_backup (${age_h}h ago)"; fi
+fi
+
 c="$(code_of "$API_URL/")"
 [[ "$c" == "200" ]] && ok "GET / -> 200 (app shell)" || bad "GET / -> $c"
 

@@ -545,6 +545,53 @@ test('version + update requests: only admins, only when the host updater is aliv
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('backups: daily schedule, verified copy, retention, admin-only download', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { BACKUP_DIR, backupDue, runBackup, listBackups } = await import('../server/services/backup.js');
+  fs.rmSync(BACKUP_DIR, { recursive: true, force: true });
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const keeper = new Client();
+  await keeper.login('anbardar');
+  assert.equal((await keeper.req('GET', '/api/backups')).status, 403);
+  assert.equal((await keeper.req('POST', '/api/backups')).status, 403);
+
+  // due only after the configured hour, and only once a day
+  const at = (h) => { const d = new Date(); d.setHours(h, 30, 0, 0); return d; };
+  assert.equal((await admin.req('PUT', '/api/settings', { backup_hour: 5, backup_keep: 3 })).status, 200);
+  assert.equal(backupDue(at(4)), false);
+  assert.equal(backupDue(at(5)), true);
+  assert.equal((await admin.req('PUT', '/api/settings', { backup_hour: 24 })).status, 400);
+
+  const made = await admin.req('POST', '/api/backups');
+  assert.equal(made.status, 201);
+  assert.equal(made.json.last.ok, true);
+  assert.ok(made.json.last.items >= 114 && made.json.last.size > 10000);
+  assert.equal(backupDue(at(23)), false); // already done today
+  assert.equal((await admin.req('PUT', '/api/settings', { backup_enabled: false })).status, 200);
+  fs.rmSync(BACKUP_DIR, { recursive: true, force: true });
+  assert.equal(backupDue(at(23)), false); // switched off
+  await admin.req('PUT', '/api/settings', { backup_enabled: true });
+
+  // retention: only the newest `backup_keep` survive
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  for (const day of ['20200101', '20200102', '20200103', '20200104']) fs.writeFileSync(path.join(BACKUP_DIR, `warehouse-${day}-0200.db`), 'old');
+  runBackup(null, 'daily');
+  const names = listBackups().map((f) => f.name);
+  assert.equal(names.length, 3);
+  assert.equal(names.includes('warehouse-20200101-0200.db'), false);
+  assert.equal(names.includes('warehouse-20200102-0200.db'), false);
+
+  const file = await admin.req('GET', '/api/backups/' + names[0]);
+  assert.equal(file.status, 200);
+  assert.equal((await keeper.req('GET', '/api/backups/' + names[0])).status, 403);
+  assert.equal((await admin.req('GET', '/api/backups/' + encodeURIComponent('../warehouse.db'))).status, 400);
+  const health = await admin.req('GET', '/health');
+  assert.ok(health.json.last_backup_at);
+  fs.rmSync(BACKUP_DIR, { recursive: true, force: true });
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();

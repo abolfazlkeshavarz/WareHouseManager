@@ -17,6 +17,7 @@ import {
   listCounts, getCount, startCount, setCountLine, removeCountLine, submitCount, reopenCount, cancelCount, applyCount,
 } from './services/counts.js';
 import { versionInfo, updateState, requestUpdate } from './services/updater.js';
+import { backupState, runBackup, backupFile } from './services/backup.js';
 import {
   buildFullExport, sepidarPreview, createSepidarExport, regenerateSepidarBatch, documentBarcodeFile, documentBundle,
 } from './services/exports.js';
@@ -346,6 +347,20 @@ api.post('/update', requireAdmin, (req, res) => {
   res.json({ request, ...updateState() });
 });
 
+// ---------------- backups (admin) ----------------
+api.get('/backups', requireAdmin, (_req, res) => res.json(backupState()));
+api.post('/backups', requireAdmin, (req, res) => {
+  const last = runBackup(req.user, 'manual');
+  if (!last.ok) throw new HttpError(500, 'پشتیبان‌گیری ناموفق بود: ' + last.error);
+  res.status(201).json(backupState());
+});
+api.get('/backups/:name', requireAdmin, (req, res) => {
+  const file = backupFile(req.params.name);
+  audit(req.user, 'backup.download', 'backup', req.params.name);
+  res.setHeader('Cache-Control', 'no-store');
+  res.download(file, req.params.name);
+});
+
 // ---------------- settings (admin) ----------------
 api.get('/settings', requireAdmin, (_req, res) => {
   res.json({ settings: getSettings() });
@@ -362,7 +377,15 @@ api.put('/settings', requireAdmin, (req, res) => {
   };
   const bool = (k) => { if (b[k] !== undefined) { setSetting(k, !!b[k]); changes[k] = !!b[k]; } };
   str('company_name', 100);
-  bool('approval_required_out'); bool('approval_required_in'); bool('check_stock'); bool('count_blind');
+  bool('approval_required_out'); bool('approval_required_in'); bool('check_stock'); bool('count_blind'); bool('backup_enabled');
+  const int = (k, min, max, msg) => {
+    if (b[k] === undefined) return;
+    const n = Number(b[k]);
+    if (!Number.isInteger(n) || n < min || n > max) throw new HttpError(400, msg);
+    setSetting(k, n); changes[k] = n;
+  };
+  int('backup_hour', 0, 23, 'ساعت پشتیبان‌گیری باید بین ۰ تا ۲۳ باشد.');
+  int('backup_keep', 3, 90, 'تعداد پشتیبان‌های نگهداری‌شده باید بین ۳ تا ۹۰ باشد.');
   if (b.sepidar_warehouses !== undefined) {
     const list = (Array.isArray(b.sepidar_warehouses) ? b.sepidar_warehouses : [])
       .map((w) => ({ code: String(w?.code ?? '').trim().slice(0, 20), title: String(w?.title ?? '').trim().slice(0, 80) }))

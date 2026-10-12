@@ -7,6 +7,7 @@ import { db, ROOT, DATA_DIR, UPLOAD_DIR, seedUsersIfEmpty, seedItemsIfEmpty } fr
 import { sessionMiddleware, csrfGuard, requirePasswordChanged, requireAuth, HttpError } from './auth.js';
 import { api } from './routes.js';
 import { versionInfo } from './services/updater.js';
+import { startBackupSchedule, listBackups } from './services/backup.js';
 
 const PORT = process.env.PORT !== undefined ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -46,7 +47,7 @@ app.get('/health', (_req, res) => {
   try {
     db.prepare('SELECT 1').get();
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ status: 'ok', ...versionInfo() });
+    res.json({ status: 'ok', ...versionInfo(), last_backup_at: listBackups()[0]?.at ?? null });
   } catch {
     res.status(503).json({ status: 'db_unavailable' });
   }
@@ -99,6 +100,7 @@ if (pfx) {
 server.listen(PORT, HOST, () => {
   const proto = server instanceof https.Server ? 'https' : 'http';
   console.log(`Warehouse app listening on ${proto}://localhost:${PORT}`);
+  startBackupSchedule();
 });
 
 export { app, server };

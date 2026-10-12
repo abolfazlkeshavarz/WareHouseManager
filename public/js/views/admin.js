@@ -1,7 +1,7 @@
 import { api, qs } from '../api.js';
 import { store } from '../store.js';
 import {
-  h, icon, fa, fmtDateTime, field, toast, openSheet, confirmDialog, copyText, emptyState,
+  h, icon, fa, fmtDateTime, field, toast, openSheet, confirmDialog, copyText, emptyState, downloadBlob, latinDigits,
 } from '../ui.js';
 import { navigate } from '../app.js';
 
@@ -127,6 +127,48 @@ const UPDATE_STEPS = {
   no_previous: 'نسخه‌ی قبلی برای بازگشت ثبت نشده است.',
 };
 
+/** «پشتیبان‌گیری خودکار»: schedule controls (saved with the page) + the list of copies, backup-now and download. */
+function backupCard() {
+  const enabled = h('input', { type: 'checkbox', style: { width: '22px', height: '22px' } });
+  const hour = h('select', { class: 'input' }, ...Array.from({ length: 24 }, (_, i) => h('option', { value: String(i) }, `${fa(i)}:۰۰`)));
+  const keep = h('input', { class: 'input num', inputmode: 'numeric', maxlength: 2 });
+  const info = h('div', { class: 'stack' });
+  const sizeText = (n) => (n >= 1048576 ? `${fa((n / 1048576).toFixed(1))} مگابایت` : `${fa(Math.max(1, Math.round(n / 1024)))} کیلوبایت`);
+
+  function draw(s) {
+    enabled.checked = s.enabled; hour.value = String(s.hour); keep.value = String(s.keep);
+    const newest = s.files[0];
+    const stale = !newest || Date.now() - Date.parse(newest.at) > 48 * 3600_000;
+    const rows = [];
+    if (s.last && !s.last.ok) rows.push(h('div', { class: 'banner attn' }, h('span', { class: 'grow' }, `آخرین پشتیبان‌گیری ناموفق بود (${fmtDateTime(s.last.at)}).`, h('div', { class: 'muted small ltr' }, s.last.error || ''))));
+    else if (stale) rows.push(h('div', { class: 'banner attn' }, h('span', { class: 'grow' }, newest ? 'بیش از دو روز است پشتیبانی گرفته نشده است.' : 'هنوز پشتیبانی گرفته نشده است.')));
+    else rows.push(h('div', { class: 'banner info' }, h('span', { class: 'grow' }, `آخرین پشتیبان: ${fmtDateTime(newest.at)} (${sizeText(newest.size)})`,
+      s.last?.ok && s.last.file === newest.name ? h('div', { class: 'muted small num' }, `${fa(s.last.items)} قطعه • ${fa(s.last.documents)} سند • بررسی سلامت: سالم`) : null)));
+    rows.push(h('button', { class: 'btn secondary block', type: 'button', onClick: async (e) => {
+      e.target.disabled = true;
+      try { draw(await api.post('/api/backups')); toast('پشتیبان گرفته شد.', 'ok'); } catch (ex) { toast(ex.message, 'err'); e.target.disabled = false; }
+    } }, 'پشتیبان همین حالا'));
+    if (s.files.length) {
+      rows.push(h('details', null, h('summary', { class: 'section-title', style: { cursor: 'pointer' } }, `فایل‌های پشتیبان (${fa(s.total)})`),
+        h('div', { class: 'list' }, ...s.files.map((f) => h('div', { class: 'row', style: { gap: '8px' } },
+          h('div', { class: 'grow' }, h('div', { class: 'num' }, fmtDateTime(f.at)), h('div', { class: 'muted small' }, sizeText(f.size))),
+          h('button', { class: 'btn sm secondary', type: 'button', onClick: async () => {
+            try { const res = await api.blob('GET', `/api/backups/${f.name}`); downloadBlob(await res.blob(), f.name); } catch (ex) { toast(ex.message, 'err'); }
+          } }, icon('download'), 'دریافت'))))));
+    }
+    info.replaceChildren(...rows);
+  }
+  api.get('/api/backups').then(draw).catch((e) => info.replaceChildren(h('div', { class: 'err-text' }, e.message)));
+
+  const card = h('div', { class: 'card stack' },
+    h('h2', null, 'پشتیبان‌گیری خودکار'),
+    h('label', { class: 'row', style: { gap: '12px' } }, enabled, h('span', null, 'هر روز به‌صورت خودکار از پایگاه داده پشتیبان گرفته شود')),
+    h('div', { class: 'form-grid two' }, field('ساعت پشتیبان‌گیری', hour), field('تعداد پشتیبان‌های نگهداری‌شده', keep, 'قدیمی‌ترها خودکار پاک می‌شوند.')),
+    info,
+    h('div', { class: 'hint' }, 'پشتیبان‌ها روی همان سرور نگه داشته می‌شوند. هر چند وقت یک‌بار یک فایل را با «دریافت» روی کامپیوتر یا فلش خودتان هم ذخیره کنید.'));
+  return { card, values: () => ({ backup_enabled: enabled.checked, backup_hour: Number(hour.value), backup_keep: Number(latinDigits(keep.value)) }) };
+}
+
 /** «نسخه و به‌روزرسانی»: shows the running version and asks the host updater service to update / roll back. */
 function updateCard() {
   const box = h('div', { class: 'stack' });
@@ -234,6 +276,7 @@ export async function settingsView() {
 
   const err = h('div', { class: 'err-text' });
   const update = updateCard();
+  const backup = backupCard();
   const body = h('div', { class: 'stack' },
     h('div', { class: 'card stack' },
       h('h2', null, 'گردش تایید'),
@@ -253,13 +296,14 @@ export async function settingsView() {
       h('h2', null, 'انبارها'),
       field('فهرست انبارها (هر خط: کد، فاصله، عنوان)', whText, 'برای «انتقال بین انبار» و ضایعات (کد 1004) و فایل بارکد سپیدار استفاده می‌شود.'),
       field('انبار این سامانه (مبدأ ورود و خروج)', mainWh, 'پس از تغییر فهرست، ذخیره کنید و صفحه را دوباره باز کنید.')),
+    backup.card,
     update.card,
     err,
     h('button', { class: 'btn block', onClick: async () => {
       err.textContent = '';
       try {
         await api.put('/api/settings', {
-          approval_required_out: approvalOut.checked, approval_required_in: approvalIn.checked, check_stock: checkStock.checked, count_blind: countBlind.checked,
+          approval_required_out: approvalOut.checked, approval_required_in: approvalIn.checked, check_stock: checkStock.checked, count_blind: countBlind.checked, ...backup.values(),
           company_name: company.value,
           sepidar_warehouses: whText.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
             const i = l.search(/\s/);
