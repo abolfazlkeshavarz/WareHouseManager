@@ -106,7 +106,11 @@ export async function workersView() {
     box.replaceChildren(...(workers.length ? workers.map((w) => h('div', { class: 'card row' },
       h('div', { class: 'grow' }, h('b', null, w.name), !w.active ? h('span', { class: 'chip', style: { marginInlineStart: '8px' } }, 'غیرفعال') : null),
       h('button', { class: 'btn sm secondary', onClick: async () => { await api.post(`/api/workers/${w.id}/active`, { active: !w.active }); load(); } },
-        w.active ? 'غیرفعال' : 'فعال')))
+        w.active ? 'غیرفعال' : 'فعال'),
+      h('button', { class: 'btn sm ghost icon', type: 'button', 'aria-label': 'حذف', onClick: async () => {
+        if (!(await confirmDialog({ title: 'حذف کارگر', message: `«${w.name}» از فهرست کارگران حذف شود؟ نام او در اسناد و گزارش‌های قبلی باقی می‌ماند.`, confirmText: 'حذف', danger: true }))) return;
+        try { await api.post(`/api/workers/${w.id}/delete`); toast('کارگر حذف شد.', 'ok'); load(); } catch (ex) { toast(ex.message, 'err'); }
+      } }, icon('trash'))))
       : [emptyState('هنوز کارگری ثبت نشده است.', 'users')]));
   }
   await load();

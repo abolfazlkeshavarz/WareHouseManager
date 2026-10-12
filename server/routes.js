@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { db, audit, hashPassword, verifyPassword, getSettings, setSetting, QR_PREFIX, nowISO } from './db.js';
+import { db, tx, audit, hashPassword, verifyPassword, getSettings, setSetting, QR_PREFIX, nowISO } from './db.js';
 import {
   HttpError, login, logout, publicUser, requireAuth, requireAdmin, destroyUserSessions, currentToken,
 } from './auth.js';
@@ -233,6 +233,20 @@ api.post('/workers/:id/active', requireAdmin, (req, res) => {
   db.prepare('UPDATE workers SET active = ? WHERE id = ?').run(req.body?.active ? 1 : 0, Number(req.params.id));
   audit(req.user, 'worker.active', 'worker', req.params.id, { active: !!req.body?.active });
   res.json({ ok: true });
+});
+
+// Removes the worker from the list only. Documents keep the worker's name as text, so history and exports are unchanged.
+api.post('/workers/:id/delete', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const w = db.prepare('SELECT * FROM workers WHERE id = ?').get(id);
+  if (!w) throw new HttpError(404, 'کارگر پیدا نشد.');
+  const used = tx(() => {
+    const n = db.prepare('UPDATE documents SET worker_id = NULL WHERE worker_id = ?').run(id).changes;
+    db.prepare('DELETE FROM workers WHERE id = ?').run(id);
+    return Number(n);
+  });
+  audit(req.user, 'worker.delete', 'worker', id, { name: w.name, documents: used });
+  res.json({ ok: true, documents: used });
 });
 
 // ---------------- users (admin) ----------------

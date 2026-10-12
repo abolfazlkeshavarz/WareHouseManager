@@ -367,6 +367,26 @@ test('check_stock setting: off lets stock-out exceed the stock (negative), on re
   assert.equal((await admin.req('POST', '/api/documents', { direction: 'in', reason: 'other_in', lines: [{ item_id: it.id, qty: 5 }] })).status, 201);
 });
 
+test('workers: delete removes from the list, documents keep the name', async () => {
+  const admin = new Client();
+  await admin.login('mokhtar');
+  const keeper = new Client();
+  await keeper.login('anbardar');
+  const it = (await admin.req('GET', '/api/items')).json.items.find((i) => i.code === '31300');
+  await admin.req('POST', '/api/documents', { direction: 'in', reason: 'other_in', lines: [{ item_id: it.id, qty: 3 }] });
+  const doc = await admin.req('POST', '/api/documents', { direction: 'out', reason: 'to_worker', worker_name: 'کارگر حذفی', lines: [{ item_id: it.id, qty: 1 }] });
+  assert.equal(doc.status, 201);
+  const w = (await admin.req('GET', '/api/workers')).json.workers.find((x) => x.name === 'کارگر حذفی');
+  assert.ok(w);
+  assert.equal((await keeper.req('POST', `/api/workers/${w.id}/delete`)).status, 403);
+  const del = await admin.req('POST', `/api/workers/${w.id}/delete`);
+  assert.equal(del.status, 200);
+  assert.equal(del.json.documents, 1);
+  assert.equal((await admin.req('GET', '/api/workers')).json.workers.some((x) => x.id === w.id), false);
+  assert.equal((await admin.req('GET', '/api/documents/' + doc.json.document.id)).json.document.worker_name, 'کارگر حذفی');
+  assert.equal((await admin.req('POST', `/api/workers/${w.id}/delete`)).status, 404);
+});
+
 test('recode: item codes can be renamed to the Sepidar code, history stays attached', async () => {
   const { recodeItems } = await import('../server/services/items.js');
   const before = db.prepare("SELECT id, stock FROM items WHERE code = '31500'").get();
