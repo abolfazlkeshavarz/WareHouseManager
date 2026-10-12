@@ -205,41 +205,58 @@ export async function scanView({ query }) {
   function lineView(l) {
     const it = store.itemsById.get(l.item_id);
     if (!it) return null;
-    const over = store.meta.check_stock !== false && cart.direction === 'out' && l.qty > it.stock;
+    const isOver = () => store.meta.check_stock !== false && cart.direction === 'out' && l.qty > it.stock;
+    const errBox = h('div', { class: 'err-text' }, 'تعداد از موجودی انبار بیشتر است.');
+    // Updated in place: re-rendering the list here would replace the buttons under the finger and swallow the tap
+    // (e.g. typing a count and then tapping «حذف» right away).
+    const sync = () => {
+      const over = isOver();
+      card.classList.toggle('bad', over);
+      errBox.hidden = !over;
+      if (qtyInput.value !== String(l.qty)) qtyInput.value = String(l.qty);
+      persist(); renderBar();
+    };
     const qtyInput = h('input', { class: 'input num', inputmode: 'numeric', value: String(l.qty), 'aria-label': 'تعداد',
       onFocus: (e) => e.target.select(),
       onChange: (e) => {
         const n = parseInt(latinDigits(e.target.value), 10);
         l.qty = Number.isFinite(n) && n > 0 ? n : 1;
-        persist(); renderCart(); renderBar();
+        sync();
       } });
-    const step = (d) => { l.qty = Math.max(1, l.qty + d); persist(); renderCart(); renderBar(); };
+    const step = (d) => { l.qty = Math.max(1, l.qty + d); sync(); };
     const noteInput = h('input', { class: 'input', placeholder: 'توضیح این ردیف (اختیاری)', value: l.note, maxlength: 300,
       onInput: (e) => { l.note = e.target.value; persist(); } });
-    return h('div', { class: `card cart-line ${over ? 'bad' : ''} ${flashId === l.item_id ? 'flash' : ''}` },
+    const card = h('div', { class: `card cart-line ${isOver() ? 'bad' : ''} ${flashId === l.item_id ? 'flash' : ''}` },
       thumb(it.image),
       h('div', { class: 'grow' },
         h('div', { class: 'name', style: { fontWeight: 700 } }, itemTitle(it)),
         h('div', { class: 'codeline' }, codeTag(it.code), h('span', null, `موجودی: ${fa(it.stock)} ${it.unit}`)),
-        over ? h('div', { class: 'err-text' }, 'تعداد از موجودی انبار بیشتر است.') : null),
+        errBox),
       h('div', { class: 'ctrl' },
         h('div', { class: 'qty-stepper' },
-          h('button', { class: 'btn secondary', onClick: () => step(-1), 'aria-label': 'کم کردن' }, icon('minus')),
+          h('button', { class: 'btn secondary', type: 'button', onClick: () => step(-1), 'aria-label': 'کم کردن' }, icon('minus')),
           qtyInput,
-          h('button', { class: 'btn secondary', onClick: () => step(1), 'aria-label': 'زیاد کردن' }, icon('plus'))),
+          h('button', { class: 'btn secondary', type: 'button', onClick: () => step(1), 'aria-label': 'زیاد کردن' }, icon('plus'))),
         h('div', { class: 'grow' }, noteInput),
-        h('button', { class: 'btn ghost icon', 'aria-label': 'حذف', onClick: () => {
-          cart.lines = cart.lines.filter((x) => x !== l); persist(); renderCart(); renderBar();
+        h('button', { class: 'btn ghost icon', type: 'button', 'aria-label': 'حذف', onClick: () => {
+          cart.lines = cart.lines.filter((x) => x !== l); persist();
+          if (cart.lines.length) card.remove(); else renderCart();
+          renderBar();
         } }, icon('trash'))),
     );
+    errBox.hidden = !isOver();
+    return card;
   }
 
   function renderCart() {
     const nodes = cart.lines.map(lineView).filter(Boolean);
     cartBox.replaceChildren(...(nodes.length ? nodes : [emptyState('قطعه‌ای اسکن نشده است. QR قطعه را اسکن کنید یا کد را وارد کنید.', 'qr')]));
     flashId = null;
-    noteBox.replaceChildren(cart.lines.length ? h('div', { class: 'field' }, h('label', null, 'توضیح سند (اختیاری)'),
-      h('textarea', { class: 'input', placeholder: 'مثلاً: شیفت صبح - خط مونتاژ ۲', maxlength: 500, onInput: (e) => { cart.note = e.target.value; persist(); } }, cart.note)) : '');
+    if (!cart.lines.length) noteBox.replaceChildren();
+    else if (!noteBox.firstChild) {
+      noteBox.replaceChildren(h('div', { class: 'field' }, h('label', null, 'توضیح سند (اختیاری)'),
+        h('textarea', { class: 'input', placeholder: 'مثلاً: شیفت صبح - خط مونتاژ ۲', maxlength: 500, onInput: (e) => { cart.note = e.target.value; persist(); } }, cart.note)));
+    }
   }
 
   function totals() {
@@ -250,18 +267,30 @@ export async function scanView({ query }) {
     return !isAdmin() && (cart.direction === 'out' ? store.meta.approval_required_out : store.meta.approval_required_in);
   }
 
+  let bar = null;
   function renderBar() {
     const t = totals();
-    if (!t.lines) { barBox.replaceChildren(); return; }
-    const label = needsApproval() ? 'ارسال برای تایید مدیر' : (cart.direction === 'out' ? 'ثبت خروج' : 'ثبت ورود');
-    barBox.replaceChildren(h('div', { class: 'sticky-bar' },
-      h('div', { class: 'grow' }, h('b', { class: 'num' }, `${fa(t.lines)} قلم`), h('div', { class: 'muted small num' }, `جمع تعداد: ${fa(t.qty)}`)),
-      h('button', { class: 'btn ghost', onClick: async () => {
-        if (await confirmDialog({ title: 'پاک کردن فهرست', message: 'همه قطعات این سند حذف شوند؟', confirmText: 'پاک کن', danger: true })) {
-          cart = emptyCart(cart.direction); persist(); renderHeader(); renderCart(); renderBar();
-        }
-      } }, 'پاک کردن'),
-      h('button', { class: `btn ${cart.direction}`, disabled: busy, onClick: submit }, label)));
+    if (!t.lines) { barBox.replaceChildren(); bar = null; return; }
+    if (!bar) {
+      bar = {
+        lines: h('b', { class: 'num' }),
+        qty: h('div', { class: 'muted small num' }),
+        btn: h('button', { class: 'btn', type: 'button', onClick: submit }),
+      };
+      barBox.replaceChildren(h('div', { class: 'sticky-bar' },
+        h('div', { class: 'grow' }, bar.lines, bar.qty),
+        h('button', { class: 'btn ghost', type: 'button', onClick: async () => {
+          if (await confirmDialog({ title: 'پاک کردن فهرست', message: 'همه قطعات این سند حذف شوند؟', confirmText: 'پاک کن', danger: true })) {
+            cart = emptyCart(cart.direction); persist(); renderHeader(); renderCart(); renderBar();
+          }
+        } }, 'پاک کردن'),
+        bar.btn));
+    }
+    bar.lines.textContent = `${fa(t.lines)} قلم`;
+    bar.qty.textContent = `جمع تعداد: ${fa(t.qty)}`;
+    bar.btn.textContent = needsApproval() ? 'ارسال برای تایید مدیر' : (cart.direction === 'out' ? 'ثبت خروج' : 'ثبت ورود');
+    bar.btn.className = `btn ${cart.direction}`;
+    bar.btn.disabled = busy;
   }
 
   async function submit() {
