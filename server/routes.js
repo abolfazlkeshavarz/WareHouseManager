@@ -289,6 +289,13 @@ function randomPassword() {
   return Array.from(crypto.randomBytes(10), (b) => alphabet[b % alphabet.length]).join('');
 }
 
+const superExists = () => !!db.prepare("SELECT 1 FROM users WHERE super_admin = 1 AND role = 'admin' AND active = 1").get();
+/** Once a «مدیر ارشد» exists, only he manages other admins' accounts and passwords. */
+function guardTarget(actor, target) {
+  if (actor.super_admin || target.id === actor.id) return;
+  if (target.super_admin) throw new HttpError(403, 'حساب مدیر ارشد را فقط خود او می‌تواند تغییر دهد.');
+  if (target.role === 'admin' && superExists()) throw new HttpError(403, 'گذرواژه و حساب مدیران دیگر را فقط مدیر ارشد می‌تواند تغییر دهد.');
+}
 function activeAdminCount() {
   return db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND active = 1").get().c;
 }
@@ -315,6 +322,7 @@ api.put('/users/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!u) throw new HttpError(404, 'کاربر پیدا نشد.');
+  guardTarget(req.user, u);
   const name = req.body?.display_name !== undefined ? String(req.body.display_name).trim().slice(0, 60) : u.display_name;
   const role = req.body?.role ?? u.role;
   const active = req.body?.active !== undefined ? (req.body.active ? 1 : 0) : u.active;
@@ -323,6 +331,7 @@ api.put('/users/:id', requireAdmin, (req, res) => {
   const losesAdmin = u.role === 'admin' && u.active && (role !== 'admin' || !active);
   if (losesAdmin && activeAdminCount() <= 1) throw new HttpError(409, 'حداقل یک مدیر فعال باید در سیستم باقی بماند.');
   if (id === req.user.id && (!active || role !== u.role)) throw new HttpError(409, 'نمی‌توانید نقش یا وضعیت حساب خودتان را تغییر دهید.');
+  if (u.super_admin && (!active || role !== 'admin')) throw new HttpError(409, 'مدیر ارشد را نمی‌توان غیرفعال کرد یا نقشش را تغییر داد.');
   db.prepare('UPDATE users SET display_name = ?, role = ?, active = ? WHERE id = ?').run(name, role, active, id);
   if (!active) destroyUserSessions(id);
   audit(req.user, 'user.update', 'user', id, { display_name: name, role, active });
@@ -333,11 +342,29 @@ api.post('/users/:id/reset-password', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!u) throw new HttpError(404, 'کاربر پیدا نشد.');
+  guardTarget(req.user, u);
   const pw = randomPassword();
   db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?').run(hashPassword(pw), id);
   destroyUserSessions(id);
   audit(req.user, 'user.reset_password', 'user', id);
   res.json({ temp_password: pw });
+});
+
+// «مدیر ارشد» sets a chosen password for anyone (users and other admins).
+api.post('/users/:id/set-password', requireAdmin, (req, res) => {
+  if (!req.user.super_admin) throw new HttpError(403, 'تعیین گذرواژه فقط برای مدیر ارشد مجاز است.');
+  const id = Number(req.params.id);
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u) throw new HttpError(404, 'کاربر پیدا نشد.');
+  const pw = req.body?.password;
+  if (typeof pw !== 'string' || pw.length < 8) throw new HttpError(400, 'گذرواژه باید حداقل ۸ نویسه باشد.');
+  if (pw.length > 200) throw new HttpError(400, 'گذرواژه بیش از حد طولانی است.');
+  const mustChange = id !== req.user.id && !!req.body?.must_change;
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?').run(hashPassword(pw), mustChange ? 1 : 0, id);
+  // everyone logged in as that user is signed out (except the super admin's own current session)
+  destroyUserSessions(id, id === req.user.id ? currentToken(req) : undefined);
+  audit(req.user, 'user.set_password', 'user', id, { username: u.username, must_change: mustChange });
+  res.json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id)) });
 });
 
 // ---------------- version / in-app update (admin, experimental) ----------------

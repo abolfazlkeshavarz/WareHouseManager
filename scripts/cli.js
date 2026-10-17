@@ -24,15 +24,17 @@ function usage() {
   create-admin <username> "<display name>"
   reset-password <username>
   stats
+  set-super <username>     make an admin «مدیر ارشد» (may set any user's password)
+  unset-super <username>
   apply-sepidar-codes   rename our items to the codes they have in Sepidar (server/seed/sepidar-code-map.json)
   recode <old-code> <new-code>`);
 }
 
 switch (cmd) {
   case 'list-users': {
-    const rows = db.prepare('SELECT username, display_name, role, active, must_change_password, last_login_at FROM users ORDER BY role, id').all();
+    const rows = db.prepare('SELECT username, display_name, role, super_admin, active, must_change_password, last_login_at FROM users ORDER BY role, id').all();
     for (const u of rows) {
-      console.log(`${u.username.padEnd(16)} ${u.role.padEnd(12)} ${u.active ? 'active  ' : 'DISABLED'} ${u.must_change_password ? '(temp password) ' : ''}${u.display_name}  last login: ${u.last_login_at ?? '-'}`);
+      console.log(`${u.username.padEnd(16)} ${(u.super_admin ? 'admin*' : u.role).padEnd(12)} ${u.active ? 'active  ' : 'DISABLED'} ${u.must_change_password ? '(temp password) ' : ''}${u.display_name}  last login: ${u.last_login_at ?? '-'}`);
     }
     break;
   }
@@ -73,6 +75,17 @@ switch (cmd) {
     for (const c of r.changed) console.log(`renamed  ${c.from} -> ${c.to}   ${c.name}`);
     for (const k of r.skipped) console.log(`skipped  ${k.from} -> ${k.to}   ${k.reason}`);
     if (!r.changed.length && !r.skipped.length) console.log('nothing to do');
+    break;
+  }
+  case 'set-super':
+  case 'unset-super': {
+    const [username] = args;
+    const u = username && db.prepare('SELECT id, role FROM users WHERE username = ?').get(username);
+    if (!u) { console.error('No such user.'); process.exit(1); }
+    if (cmd === 'set-super' && u.role !== 'admin') { console.error('Only an admin can be made super admin.'); process.exit(1); }
+    db.prepare('UPDATE users SET super_admin = ? WHERE id = ?').run(cmd === 'set-super' ? 1 : 0, u.id);
+    audit(null, `cli.${cmd.replace('-', '_')}`, 'user', username);
+    console.log(cmd === 'set-super' ? `"${username}" is now super admin.` : `"${username}" is no longer super admin.`);
     break;
   }
   case 'stats': {

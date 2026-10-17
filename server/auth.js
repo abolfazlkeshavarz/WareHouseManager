@@ -31,7 +31,7 @@ function cookieFlags(req, maxAgeSec) {
 export function publicUser(u) {
   return u && {
     id: u.id, username: u.username, display_name: u.display_name, role: u.role,
-    must_change_password: !!u.must_change_password, active: !!u.active,
+    must_change_password: !!u.must_change_password, active: !!u.active, super_admin: !!u.super_admin,
     created_at: u.created_at, last_login_at: u.last_login_at,
   };
 }

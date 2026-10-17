@@ -606,6 +606,51 @@ test('recode: item codes can be renamed to the Sepidar code, history stays attac
   assert.equal(row.sepidar_code, 'RC-2');
 });
 
+test('users: «مدیر ارشد» sets any password; other admins cannot touch admins once he exists', async () => {
+  const boss = new Client();
+  await boss.login('mokhtar');
+  const id = (u) => db.prepare('SELECT id FROM users WHERE username = ?').get(u).id;
+  // no super admin yet: admins keep the old rights
+  assert.equal((await boss.req('POST', `/api/users/${id('sattar')}/set-password`, { password: 'whatever-123' })).status, 403);
+  db.prepare("UPDATE users SET super_admin = 1 WHERE username = 'mokhtar'").run();
+  try {
+    const me = (await boss.req('GET', '/api/auth/me')).json.user;
+    assert.equal(me.super_admin, true);
+    const sattar = new Client();
+    await sattar.login('sattar');
+    const keeperId = id('anbardar');
+
+    // super admin sets another admin's password: old sessions die, new password works
+    assert.equal((await boss.req('POST', `/api/users/${id('sattar')}/set-password`, { password: 'short' })).status, 400);
+    const set = await boss.req('POST', `/api/users/${id('sattar')}/set-password`, { password: 'Sattar-new-pass-1' });
+    assert.equal(set.status, 200);
+    assert.equal(set.json.user.must_change_password, false);
+    assert.equal((await sattar.req('GET', '/api/items')).status, 401);
+    const back = new Client();
+    assert.equal((await back.req('POST', '/api/auth/login', { username: 'sattar', password: 'Sattar-new-pass-1' })).status, 200);
+
+    // ... and a storekeeper's, forcing a change at next login
+    const k = await boss.req('POST', `/api/users/${keeperId}/set-password`, { password: 'Keeper-temp-123', must_change: true });
+    assert.equal(k.json.user.must_change_password, true);
+
+    // a normal admin may still manage storekeepers, but not other admins or the super admin
+    assert.equal((await back.req('POST', `/api/users/${keeperId}/reset-password`)).status, 200);
+    assert.equal((await back.req('POST', `/api/users/${id('mokhtar')}/reset-password`)).status, 403);
+    assert.equal((await back.req('PUT', `/api/users/${id('mokhtar')}`, { active: false })).status, 403);
+    assert.equal((await back.req('POST', `/api/users/${keeperId}/set-password`, { password: 'nope-nope-1' })).status, 403);
+    const extra = await boss.req('POST', '/api/users', { username: 'admin3', display_name: 'مدیر ۳', role: 'admin' });
+    assert.equal((await back.req('POST', `/api/users/${extra.json.user.id}/reset-password`)).status, 403);
+    assert.equal((await boss.req('PUT', `/api/users/${id('mokhtar')}`, { role: 'storekeeper' })).status, 409);
+
+    // the super admin can set his own password and stays logged in
+    assert.equal((await boss.req('POST', `/api/users/${id('mokhtar')}/set-password`, { password: PW })).status, 200);
+    assert.equal((await boss.req('GET', '/api/items')).status, 200);
+  } finally {
+    db.prepare('UPDATE users SET super_admin = 0').run();
+    db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE username IN ('sattar','anbardar')").run(hashPassword(PW));
+  }
+});
+
 test('users: last admin protected, temp password forces change', async () => {
   const admin = new Client();
   await admin.login('mokhtar');

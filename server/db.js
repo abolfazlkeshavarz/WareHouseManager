@@ -158,6 +158,12 @@ try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN party TEXT'); } catch { /*
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_no INTEGER'); } catch { /* exists */ }
 try { db.exec('ALTER TABLE sepidar_batches ADD COLUMN doc_date TEXT'); } catch { /* exists */ }
 try { db.exec("ALTER TABLE documents ADD COLUMN dest_warehouse TEXT NOT NULL DEFAULT ''"); } catch { /* column already exists */ }
+// «مدیر ارشد» (super admin): may set any user's password, including other admins'. Only the CLI grants it.
+try { db.exec('ALTER TABLE users ADD COLUMN super_admin INTEGER NOT NULL DEFAULT 0'); } catch { /* column already exists */ }
+if (!db.prepare('SELECT 1 FROM users WHERE super_admin = 1').get()) {
+  db.prepare("UPDATE users SET super_admin = 1 WHERE username = 'abolfazl' AND role = 'admin'").run();
+}
+
 // A deleted document keeps its row (status becomes 'cancelled' so nothing counts it) plus who/when/why.
 for (const col of ['deleted_at TEXT', 'deleted_by INTEGER', "delete_note TEXT NOT NULL DEFAULT ''", 'deleted_status TEXT']) {
   try { db.exec(`ALTER TABLE documents ADD COLUMN ${col}`); } catch { /* column already exists */ }

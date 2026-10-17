@@ -24,17 +24,22 @@ export async function usersView() {
 
   async function load() {
     const { users } = await api.get('/api/users');
+    const me = users.find((x) => x.id === store.user.id) || store.user;
+    const hasSuper = users.some((x) => x.super_admin && x.active);
+    // same rule as the server: once a «مدیر ارشد» exists, only he manages other admins
+    const canManage = (u) => me.super_admin || u.id === me.id || (!u.super_admin && (u.role !== 'admin' || !hasSuper));
     box.replaceChildren(...users.map((u) => h('div', { class: 'card' },
       h('div', { class: 'row wrap' },
         h('b', null, u.display_name),
-        h('span', { class: `chip ${u.role === 'admin' ? 'primary' : ''}` }, store.meta.roles[u.role]),
+        h('span', { class: `chip ${u.role === 'admin' ? 'primary' : ''}` }, u.super_admin ? 'مدیر ارشد' : store.meta.roles[u.role]),
         !u.active ? h('span', { class: 'chip danger' }, 'غیرفعال') : null,
         u.must_change_password ? h('span', { class: 'chip warn' }, 'گذرواژه موقت') : null),
       h('div', { class: 'muted small' }, h('span', { class: 'ltr' }, u.username), ' • ',
         u.last_login_at ? `آخرین ورود: ${fmtDateTime(u.last_login_at)}` : 'هنوز وارد نشده'),
       h('div', { class: 'row wrap', style: { marginTop: '10px' } },
-        h('button', { class: 'btn sm secondary', onClick: () => editUser(u) }, icon('edit'), 'ویرایش'),
-        h('button', { class: 'btn sm secondary', onClick: async () => {
+        canManage(u) ? h('button', { class: 'btn sm secondary', onClick: () => editUser(u) }, icon('edit'), 'ویرایش') : null,
+        me.super_admin ? h('button', { class: 'btn sm', onClick: () => setPassword(u) }, 'تعیین گذرواژه') : null,
+        !canManage(u) ? null : h('button', { class: 'btn sm secondary', onClick: async () => {
           if (!(await confirmDialog({ title: 'بازنشانی گذرواژه', message: `برای «${u.display_name}» گذرواژه موقت جدید ساخته می‌شود و نشست‌های فعلی او بسته می‌شود.`, confirmText: 'بازنشانی' }))) return;
           try {
             const r = await api.post(`/api/users/${u.id}/reset-password`);
@@ -42,9 +47,39 @@ export async function usersView() {
             load();
           } catch (e) { toast(e.message, 'err'); }
         } }, 'بازنشانی گذرواژه'),
-        u.id !== store.user.id ? h('button', { class: 'btn sm secondary', onClick: async () => {
+        u.id !== store.user.id && canManage(u) && !u.super_admin ? h('button', { class: 'btn sm secondary', onClick: async () => {
           try { await api.put(`/api/users/${u.id}`, { active: !u.active }); load(); } catch (e) { toast(e.message, 'err'); }
         } }, u.active ? 'غیرفعال‌سازی' : 'فعال‌سازی') : null))));
+  }
+
+  function setPassword(u) {
+    openSheet((close) => {
+      const self = u.id === store.user.id;
+      const pw = h('input', { class: 'input code', type: 'password', autocomplete: 'new-password', maxlength: 200 });
+      const again = h('input', { class: 'input code', type: 'password', autocomplete: 'new-password', maxlength: 200 });
+      const show = h('input', { type: 'checkbox', style: { width: '20px', height: '20px' }, onChange: () => { pw.type = again.type = show.checked ? 'text' : 'password'; } });
+      const must = h('input', { type: 'checkbox', style: { width: '20px', height: '20px' } });
+      const err = h('div', { class: 'err-text' });
+      return h('div', { class: 'stack' },
+        h('h2', null, `تعیین گذرواژه: ${u.display_name}`),
+        h('div', { class: 'muted small ltr' }, u.username),
+        field('گذرواژه جدید (حداقل ۸ نویسه)', pw), field('تکرار گذرواژه', again),
+        h('label', { class: 'row', style: { gap: '10px' } }, show, h('span', null, 'نمایش گذرواژه')),
+        self ? null : h('label', { class: 'row', style: { gap: '10px' } }, must, h('span', null, 'کاربر در ورود بعدی گذرواژه را عوض کند')),
+        h('div', { class: 'hint' }, self ? 'نشست‌های دیگر شما بسته می‌شوند.' : 'کاربر از همه‌ی دستگاه‌ها خارج می‌شود و باید با گذرواژه‌ی جدید وارد شود.'),
+        err,
+        h('div', { class: 'actions' },
+          h('button', { class: 'btn secondary', onClick: () => close() }, 'انصراف'),
+          h('button', { class: 'btn', onClick: async () => {
+            err.textContent = '';
+            if (pw.value.length < 8) { err.textContent = 'گذرواژه باید حداقل ۸ نویسه باشد.'; return; }
+            if (pw.value !== again.value) { err.textContent = 'تکرار گذرواژه یکسان نیست.'; return; }
+            try {
+              await api.post(`/api/users/${u.id}/set-password`, { password: pw.value, must_change: must.checked });
+              close(); toast(`گذرواژه‌ی «${u.display_name}» تغییر کرد.`, 'ok'); load();
+            } catch (e) { err.textContent = e.message; }
+          } }, 'ذخیره گذرواژه')));
+    });
   }
 
   function editUser(u) {

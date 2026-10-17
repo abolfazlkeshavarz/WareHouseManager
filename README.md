@@ -55,6 +55,7 @@ DOMAIN=warehouse.example.com LETSENCRYPT_EMAIL=you@example.com ./scripts/bootstr
 | `make smoke SMOKE_USER=… SMOKE_PASSWORD=…` | تست سرتاسری فقط‌خواندنی |
 | `make prod-credentials` / `make prod-clear-credentials` | نمایش / حذف گذرواژه‌های اولیه |
 | `make prod-shell CMD="reset-password mokhtar"` | بازنشانی گذرواژه (یا `list-users`, `create-admin`, `stats`) |
+| `make prod-shell CMD="set-super abolfazl"` | «مدیر ارشد» کردن یک مدیر (حساب نباشد: اول `create-admin abolfazl "ابوالفضل"`) |
 | `make backup` / `make restore FILE=backups/…db` | پشتیبان‌گیری و بازیابی |
 | `make deploy-check` | بررسی پیش از استقرار |
 | `make demo-data API_URL=… ADMIN_USER=… ADMIN_PASSWORD=…` | داده‌ی آزمایشی (فقط روی انبار خالی) |
@@ -73,6 +74,12 @@ DOMAIN=warehouse.example.com LETSENCRYPT_EMAIL=you@example.com ./scripts/bootstr
   - **به‌روزرسانی:** پشتیبان پایگاه داده ← `git pull` (فقط fast-forward از شاخه‌ی `main`) ← `make prod-up` ← بررسی سلامت. اگر نسخه‌ی جدید بالا نیاید، نسخه‌ی قبلی خودکار برمی‌گردد.
   - **بازگشت:** کد به نسخه‌ای که قبل از آخرین به‌روزرسانی اجرا می‌شد برمی‌گردد. داده‌ها (قطعات، اسناد، موجودی) دست نمی‌خورند.
 - اگر روی سرور فایل‌های ردیابی‌شده را دستی تغییر داده باشید، به‌روزرسانی خودکار انجام نمی‌شود (پیام می‌دهد). روش دستی همیشه کار می‌کند: `git pull && make prod-up`.
+
+### مدیر ارشد
+
+- «مدیر ارشد» در «بیشتر › کاربران» برای هر کاربر (انباردار یا مدیر دیگر، و خودش) با «تعیین گذرواژه» گذرواژه‌ی دلخواه می‌گذارد؛ کاربر از همه‌ی دستگاه‌ها خارج می‌شود. می‌توان تعیین کرد که در ورود بعدی گذرواژه را عوض کند.
+- وقتی مدیر ارشد وجود دارد، مدیرهای دیگر فقط حساب انباردارها و خودشان را تغییر می‌دهند؛ حساب و گذرواژه‌ی مدیرهای دیگر فقط دست مدیر ارشد است. مدیر ارشد را نمی‌توان از داخل برنامه غیرفعال یا تنزل داد.
+- مدیر ارشد فقط از خط فرمان سرور تعیین می‌شود (`set-super` / `unset-super`). حسابی با نام کاربری `abolfazl` اگر مدیر باشد، خودکار مدیر ارشد می‌شود.
 
 ### اولین ورود
 
