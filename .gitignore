@@ -9,3 +9,4 @@ dist/
 
 samples/sepidar-item-test/
 .updater/
+local/
