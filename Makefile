@@ -72,7 +72,7 @@ PROD_COMPOSE = env \
 
 .PHONY: help install run dev test icons \
         images images-bundle load-images prod-build prod-up up-prebuilt prod-down prod-logs prod-ps \
-        prod-shell prod-credentials prod-clear-credentials local-up local-down \
+        prod-shell prod-credentials prod-clear-credentials prod-users reset-password local-up local-down \
         backup restore bootstrap ssl deploy-check deploy-health health smoke demo-data \
         updater-install updater-uninstall updater-status updater-logs
 
@@ -146,6 +146,13 @@ prod-ps: ## Container status
 
 prod-shell: ## Run the admin CLI in the container. CMD="list-users" | "reset-password mokhtar" | "stats"
 	$(NOCONV) $(DOCKER) exec -i warehouse-app node scripts/cli.js $(or $(CMD),list-users)
+
+prod-users: ## List the users (to find the admin username) on the server
+	@$(NOCONV) $(DOCKER) exec -i warehouse-app node scripts/cli.js list-users
+
+reset-password: ## Set a new password for a user ON THE SERVER. ACCOUNT=admin  (prints the new password)
+	@test -n "$(ACCOUNT)" || { echo "ACCOUNT is required: make reset-password ACCOUNT=admin   (see names: make prod-users)"; exit 1; }
+	@$(NOCONV) $(DOCKER) exec -i warehouse-app node scripts/cli.js reset-password "$(ACCOUNT)"
 
 prod-credentials: ## Show the first-run usernames/passwords (if still present)
 	@$(NOCONV) $(DOCKER) exec warehouse-app cat /data/FIRST-RUN-PASSWORDS.txt 2>/dev/null \
